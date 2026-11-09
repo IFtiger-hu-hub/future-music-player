@@ -190,7 +190,7 @@ export const FloatingPlayerBar: React.FC = () => {
   const totalDurationMs = Math.max(1000, currentTrack.durationSeconds * 1000);
 
   return (
-    <div className="fixed bottom-5 left-8 right-8 xl:left-12 xl:right-12 z-30 pointer-events-none flex items-center justify-between gap-4 select-none">
+    <div className="fixed bottom-3 sm:bottom-4 md:bottom-5 left-3 right-3 sm:left-6 sm:right-6 md:left-8 md:right-8 xl:left-12 xl:right-12 z-30 pointer-events-none flex flex-col-reverse md:flex-row items-stretch md:items-center justify-between gap-2 md:gap-4 select-none">
       {/* Production HTML5 Audio Engine */}
       <audio
         ref={audioRef}
@@ -224,7 +224,7 @@ export const FloatingPlayerBar: React.FC = () => {
       />
 
       {/* Bottom-Left Floating HarmonyOS Navigation Capsule (推荐 / 音乐厅 / Cafe馆 / 我的) */}
-      <nav className="pointer-events-auto h-[62px] px-3 rounded-full theme-harmony-dock backdrop-blur-2xl border flex items-center gap-1 sm:gap-2">
+      <nav className="pointer-events-auto h-[54px] md:h-[62px] px-2 sm:px-3 rounded-full theme-harmony-dock backdrop-blur-2xl border flex items-center justify-around md:justify-start gap-0.5 sm:gap-1.5 shrink-0">
         {HARMONY_BOTTOM_TABS.map((tab) => {
           const Icon = tab.icon;
           const isActive = tab.matchIds.includes(activeNav);
@@ -232,7 +232,7 @@ export const FloatingPlayerBar: React.FC = () => {
             <button
               key={tab.id}
               onClick={() => setActiveNav(tab.id)}
-              className="relative px-4 py-1.5 rounded-full flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-colors"
+              className="relative flex-1 md:flex-initial px-3 lg:px-4 py-1.5 rounded-full flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-colors whitespace-nowrap"
             >
               {isActive && (
                 <motion.div
@@ -260,8 +260,8 @@ export const FloatingPlayerBar: React.FC = () => {
         })}
       </nav>
 
-      {/* Bottom-Right Floating HarmonyOS Vinyl Mini-Player Capsule (Exact Match to Screenshot) */}
-      <div className="pointer-events-auto h-[62px] pl-2.5 pr-4 rounded-full theme-harmony-dock backdrop-blur-2xl border flex items-center gap-4 min-w-[320px] sm:min-w-[400px] max-w-[540px] relative overflow-hidden">
+      {/* Bottom-Right Floating HarmonyOS Vinyl Mini-Player Capsule */}
+      <div className="pointer-events-auto h-[58px] md:h-[62px] pl-2.5 pr-3.5 sm:pr-4 rounded-full theme-harmony-dock backdrop-blur-2xl border flex items-center gap-3 sm:gap-4 w-full md:w-auto md:min-w-[330px] lg:min-w-[400px] md:max-w-[460px] lg:max-w-[540px] md:flex-1 relative overflow-hidden">
         {/* Subtle Bottom Progress Line Inside Capsule */}
         <MiniCapsuleProgressLine
           totalDurationMs={totalDurationMs}

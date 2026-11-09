@@ -125,11 +125,11 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
       </div>
 
       {/* 1. HarmonyOS Top Navigation Bar (PlayerNav) */}
-      <div className="relative z-10 px-8 xl:px-14 pt-6 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+      <div className="relative z-10 px-4 sm:px-8 xl:px-14 pt-4 sm:pt-6 flex items-center justify-between flex-wrap gap-2.5 sm:gap-4 shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3">
           <button
             onClick={() => setStageOpen(false)}
-            className="w-9 h-9 rounded-full bg-white/[0.1] hover:bg-white/[0.18] border border-white/[0.1] flex items-center justify-center !text-white/85 hover:!text-white transition-colors cursor-pointer"
+            className="w-9 h-9 rounded-full bg-white/[0.1] hover:bg-white/[0.18] border border-white/[0.1] flex items-center justify-center !text-white/85 hover:!text-white transition-colors cursor-pointer shrink-0"
             title="收起播放页 (ESC)"
           >
             <ChevronDown className="w-5 h-5" />
@@ -138,7 +138,7 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
           {/* Toggle Vinyl / Cover Mode */}
           <button
             onClick={() => setVinylMode((v) => !v)}
-            className="h-8 px-3.5 rounded-full bg-white/[0.08] hover:bg-white/[0.15] border border-white/[0.1] text-[11.5px] font-medium !text-white/85 flex items-center gap-1.5 transition-colors cursor-pointer"
+            className="hidden lg:flex h-8 px-3.5 rounded-full bg-white/[0.08] hover:bg-white/[0.15] border border-white/[0.1] text-[11.5px] font-medium !text-white/85 items-center gap-1.5 transition-colors cursor-pointer"
           >
             <Disc3 className="w-3.5 h-3.5" />
             <span>{vinylMode ? '黑胶唱盘' : '高清画幅'}</span>
@@ -147,14 +147,15 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
           {/* HarmonyOS Audio Vivid Spatial Audio Pill */}
           <button
             onClick={() => setSpatialAudioEnabled((v) => !v)}
-            className={`h-8 px-3.5 rounded-full border text-[11.5px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+            className={`h-8 px-3 sm:px-3.5 rounded-full border text-[11.5px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
               spatialAudioEnabled
                 ? 'bg-gradient-to-r from-[#F5D08A]/25 to-[#E5A93C]/25 border-[#F5D08A]/50 !text-[#FCE3B4] shadow-[0_0_20px_rgba(245,208,138,0.18)]'
                 : 'bg-white/[0.06] border-white/[0.1] !text-white/60'
             }`}
           >
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Audio Vivid 菁彩声</span>
+            <span className="hidden sm:inline">Audio Vivid 菁彩声</span>
+            <span className="sm:hidden">菁彩声</span>
           </button>
         </div>
 
@@ -246,13 +247,13 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
       </div>
 
       {/* 2. HarmonyOS PC Split Stage: Left Vinyl & Control Matrix + Right Fluid Lyrics */}
-      <div className="relative z-10 flex-1 grid grid-cols-1 lg:grid-cols-[440px_1fr] gap-12 xl:gap-16 items-center px-10 xl:px-20 max-w-[1380px] w-full mx-auto overflow-hidden">
+      <div className="relative z-10 flex-1 min-h-0 flex flex-col-reverse lg:grid lg:grid-cols-[380px_1fr] xl:grid-cols-[440px_1fr] gap-4 lg:gap-10 xl:gap-16 items-center px-4 sm:px-8 lg:px-10 xl:px-20 max-w-[1380px] w-full mx-auto overflow-hidden">
         {/* Left Column: HarmonyOS NEXT Vinyl Turntable + 3-Tier Control Matrix */}
-        <div className="flex flex-col items-center">
-          {/* Turntable / Cover Display Area */}
+        <div className="w-full lg:w-auto flex flex-col items-center shrink-0 pb-2 lg:pb-0">
+          {/* Turntable / Cover Display Area (Desktop lg+ only so narrow windows prioritize lyrics) */}
           <div
             onClick={() => setVinylMode((v) => !v)}
-            className="relative flex items-center justify-center cursor-pointer pt-4 pb-2"
+            className="hidden lg:flex relative items-center justify-center cursor-pointer pt-4 pb-2"
             title="点击切换黑胶唱盘 / 高清方形封面"
           >
             {vinylMode ? (
@@ -359,16 +360,28 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
           </div>
 
           {/* HarmonyOS 3-Tier Control Matrix (MusicControlComponent) */}
-          <div className="mt-6 w-full max-w-[368px] space-y-5">
+          <div className="mt-2 lg:mt-6 w-full max-w-[520px] lg:max-w-[368px] space-y-3 lg:space-y-5">
             {/* Tier 1: Track Identity + Favorite & Audio Quality Badges */}
             <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <h1 className="text-[22px] font-bold !text-white truncate tracking-tight">
-                  {currentTrack.title}
-                </h1>
-                <p className="text-[14px] !text-white/65 truncate mt-0.5 font-medium">
-                  {currentTrack.artists.join(' / ')} · {currentTrack.album}
-                </p>
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <div className="lg:hidden w-11 h-11 rounded-full overflow-hidden ring-2 ring-white/20 shrink-0 shadow-md">
+                  <img
+                    src={currentTrack.coverUrl}
+                    alt={currentTrack.title}
+                    decoding="async"
+                    className={`w-full h-full object-cover ${
+                      isPlaying ? 'animate-[spin_18s_linear_infinite]' : ''
+                    }`}
+                  />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h1 className="text-[18px] sm:text-[20px] lg:text-[22px] font-bold !text-white truncate tracking-tight">
+                    {currentTrack.title}
+                  </h1>
+                  <p className="text-[12.5px] sm:text-[14px] !text-white/65 truncate mt-0.5 font-medium">
+                    {currentTrack.artists.join(' / ')} · {currentTrack.album}
+                  </p>
+                </div>
               </div>
 
               <div className="flex items-center gap-2.5 shrink-0">
@@ -452,12 +465,12 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
 
               <button
                 onClick={togglePlay}
-                className="w-15 h-15 rounded-full bg-white hover:scale-105 active:scale-95 text-[#141418] shadow-[0_12px_30px_rgba(255,255,255,0.22)] flex items-center justify-center transition-transform cursor-pointer"
+                className="w-13 h-13 lg:w-15 lg:h-15 rounded-full bg-white hover:scale-105 active:scale-95 text-[#141418] shadow-[0_12px_30px_rgba(255,255,255,0.22)] flex items-center justify-center transition-transform cursor-pointer"
               >
                 {isPlaying ? (
-                  <Pause className="w-6 h-6 fill-current" />
+                  <Pause className="w-5 h-5 lg:w-6 lg:h-6 fill-current" />
                 ) : (
-                  <Play className="w-6 h-6 fill-current ml-0.5" />
+                  <Play className="w-5 h-5 lg:w-6 lg:h-6 fill-current ml-0.5" />
                 )}
               </button>
 
@@ -506,7 +519,7 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
             WebkitMaskImage:
               'linear-gradient(to bottom, transparent 0%, black 11%, black 89%, transparent 100%)',
           }}
-          className="h-[540px] overflow-y-auto pr-6 py-48 flex flex-col space-y-6 no-scrollbar relative"
+          className="w-full flex-1 min-h-0 lg:h-[540px] overflow-y-auto pr-2 sm:pr-6 py-24 lg:py-48 flex flex-col space-y-5 lg:space-y-6 no-scrollbar relative"
         >
           {currentTrack.lyrics.map((line, index) => {
             const isActiveLine = index === activeLineIndex;

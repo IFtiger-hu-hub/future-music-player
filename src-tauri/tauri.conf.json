@@ -15,8 +15,8 @@
         "title": "Future Music",
         "width": 1280,
         "height": 820,
-        "minWidth": 1024,
-        "minHeight": 680,
+        "minWidth": 520,
+        "minHeight": 480,
         "decorations": true,
         "resizable": true,
         "fullscreen": false

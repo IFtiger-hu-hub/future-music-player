@@ -128,7 +128,7 @@ export function App() {
       <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden theme-main-area theme-stage">
         <TopSourceBar />
 
-        <main className="flex-1 overflow-y-auto px-8 xl:px-12 pt-2 pb-28">
+        <main className="flex-1 overflow-y-auto px-4 sm:px-6 md:px-8 xl:px-12 pt-2 pb-40 md:pb-28">
           <AnimatePresence mode="wait">
             <motion.div
               key={`${activeNav}-${activeSourceFilter}`}
@@ -136,7 +136,7 @@ export function App() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
               transition={HARMONY_VIEW_TRANSITION}
-              className="max-w-[1440px] mx-auto space-y-7"
+              className="max-w-[1440px] mx-auto space-y-5 sm:space-y-7"
             >
               {activeNav === 'favorites' && <FavoritesView />}
               {(activeNav === 'local_playlists' ||

@@ -84,11 +84,11 @@ export const TrackTable: React.FC<TrackTableProps> = ({ tracks }) => {
   return (
     <div className="w-full select-none">
       {/* HarmonyOS Clean Chinese Column Headers */}
-      <div className="grid grid-cols-[44px_2.1fr_1.15fr_140px_76px] gap-4 px-4 py-2.5 text-[12px] font-medium text-white/45 border-b border-white/[0.06]">
+      <div className="grid grid-cols-[34px_1fr_68px] sm:grid-cols-[40px_1fr_116px_74px] lg:grid-cols-[44px_2.1fr_1.15fr_140px_76px] gap-2.5 sm:gap-3.5 lg:gap-4 px-2.5 sm:px-3.5 lg:px-4 py-2.5 text-[12px] font-medium text-white/45 border-b border-white/[0.06]">
         <div className="text-center">序号</div>
         <div>歌曲 / 歌手</div>
-        <div>专辑</div>
-        <div>音源切换</div>
+        <div className="hidden lg:block">专辑</div>
+        <div className="hidden sm:block">音源切换</div>
         <div className="text-right pr-1">时长</div>
       </div>
 
@@ -108,7 +108,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({ tracks }) => {
                 contentVisibility: 'auto',
                 containIntrinsicSize: '0 60px',
               }}
-              className={`group grid grid-cols-[44px_2.1fr_1.15fr_140px_76px] gap-4 items-center px-4 py-2.5 rounded-[14px] transition-colors duration-150 cursor-pointer ${
+              className={`group grid grid-cols-[34px_1fr_68px] sm:grid-cols-[40px_1fr_116px_74px] lg:grid-cols-[44px_2.1fr_1.15fr_140px_76px] gap-2.5 sm:gap-3.5 lg:gap-4 items-center px-2.5 sm:px-3.5 lg:px-4 py-2.5 rounded-[14px] transition-colors duration-150 cursor-pointer ${
                 isCurrent
                   ? 'bg-[#FA2D48]/[0.08]'
                   : 'hover:bg-white/[0.045]'
@@ -196,17 +196,21 @@ export const TrackTable: React.FC<TrackTableProps> = ({ tracks }) => {
                   </div>
                   <div className="text-[12px] text-white/50 truncate mt-0.5">
                     {track.artists.join(' / ')}
+                    <span className="lg:hidden text-white/35">
+                      {' '}
+                      · {track.album}
+                    </span>
                   </div>
                 </div>
               </div>
 
-              {/* Album */}
-              <div className="text-[12.5px] text-white/50 truncate pr-2">
+              {/* Album (Visible on lg+) */}
+              <div className="hidden lg:block text-[12.5px] text-white/50 truncate pr-2">
                 {track.album}
               </div>
 
-              {/* Multi-Source Direct Capsule Switcher */}
-              <div className="flex items-center gap-1.5 flex-wrap">
+              {/* Multi-Source Direct Capsule Switcher (Visible on sm+) */}
+              <div className="hidden sm:flex items-center gap-1.5 flex-wrap">
                 {track.bindings.map((b) => {
                   const isActiveSource =
                     isCurrent && activeSourceForPlayback === b.source;

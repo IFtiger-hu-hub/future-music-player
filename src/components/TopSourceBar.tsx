@@ -106,73 +106,79 @@ export const TopSourceBar: React.FC = () => {
   };
 
   return (
-    <header className="h-16 shrink-0 px-8 xl:px-12 flex items-center justify-between z-20 select-none">
-      {/* Left: HarmonyOS Bold Section Title + Subtle Multi-Source Pills */}
-      <div className="flex items-center gap-6">
-        <h1 className="text-[26px] font-bold tracking-[-0.02em] text-white leading-none">
-          {NAV_TITLES[activeNav] || '推荐'}
-        </h1>
+    <header className="shrink-0 px-4 sm:px-6 md:px-8 xl:px-12 pt-2.5 pb-1.5 lg:py-0 lg:h-16 flex flex-col justify-center gap-2 z-20 select-none">
+      <div className="flex items-center justify-between gap-2 sm:gap-4 min-w-0">
+        {/* Left: HarmonyOS Bold Section Title + Subtle Multi-Source Pills */}
+        <div className="flex items-center gap-3 sm:gap-5 min-w-0 shrink-0">
+          <h1 className="text-[20px] sm:text-[23px] md:text-[26px] font-bold tracking-[-0.02em] text-white leading-none shrink-0">
+            {NAV_TITLES[activeNav] || '推荐'}
+          </h1>
 
-        <div className="hidden md:flex items-center gap-1 p-1 rounded-full bg-white/[0.05] border border-white/[0.06]">
-          {SOURCE_FILTERS.map((filter) => {
-            const isActive = activeSourceFilter === filter.id;
-            return (
-              <button
-                key={filter.id}
-                onClick={() => setActiveSourceFilter(filter.id)}
-                className={`relative px-3 py-1 rounded-full text-[12px] transition-colors cursor-pointer ${
-                  isActive
-                    ? 'text-white font-semibold'
-                    : 'text-white/55 hover:text-white/90'
-                }`}
-              >
-                {isActive && (
-                  <motion.div
-                    layoutId="harmony-source-segment"
-                    transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-                    className="absolute inset-0 rounded-full bg-white/[0.14] shadow-xs"
-                  />
-                )}
-                <span className="relative z-10">{filter.label}</span>
-              </button>
-            );
-          })}
+          <div className="hidden lg:flex items-center gap-1 p-1 rounded-full bg-white/[0.05] border border-white/[0.06]">
+            {SOURCE_FILTERS.map((filter) => {
+              const isActive = activeSourceFilter === filter.id;
+              return (
+                <button
+                  key={filter.id}
+                  onClick={() => setActiveSourceFilter(filter.id)}
+                  className={`relative px-3 py-1 rounded-full text-[12px] transition-colors cursor-pointer whitespace-nowrap ${
+                    isActive
+                      ? 'text-white font-semibold'
+                      : 'text-white/55 hover:text-white/90'
+                  }`}
+                >
+                  {isActive && (
+                    <motion.div
+                      layoutId="harmony-source-segment"
+                      transition={{ type: 'spring', stiffness: 420, damping: 34 }}
+                      className="absolute inset-0 rounded-full bg-white/[0.14] shadow-xs"
+                    />
+                  )}
+                  <span className="relative z-10">{filter.label}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
 
-      {/* Right: Account Pill + HarmonyOS Acoustic Wave Icon + Rounded-Full Search Bar */}
-      <div className="flex items-center gap-3">
-        {/* Huawei Account Quick Status */}
-        <button
-          onClick={() => setHuaweiAuthModalOpen(true)}
-          className="hidden sm:flex items-center gap-2 h-9 px-3.5 rounded-full bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.07] text-[12px] font-medium text-white/85 transition-colors cursor-pointer"
-        >
-          <span
-            className={`w-2 h-2 rounded-full ${
-              huaweiSource?.loggedIn ? 'bg-emerald-500' : 'bg-[#FA2D48]'
-            }`}
-          />
-          <QrCode className="w-3.5 h-3.5 text-white/60" />
-          <span className="max-w-[130px] truncate">
-            {huaweiSource?.loggedIn
-              ? huaweiSource.accountName.replace('华为账号 · ', '')
-              : '连接华为音乐'}
-          </span>
-        </button>
-
-        {/* Import Playlists Button */}
-        <button
-          onClick={() => setImportModalOpen(true)}
-          title="导入歌单"
-          className="w-9 h-9 rounded-full bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.07] flex items-center justify-center text-white/75 hover:text-white transition-colors cursor-pointer"
-        >
-          <Download className="w-4 h-4" />
-        </button>
-
-        {/* HarmonyOS Circular Acoustic Wave / Theme Studio Button (Exact match to screenshot) */}
-        <div className="relative" ref={popoverRef}>
+        {/* Right: Account Pill + HarmonyOS Acoustic Wave Icon + Rounded-Full Search Bar */}
+        <div className="flex items-center justify-end gap-2 sm:gap-2.5 min-w-0 flex-1 sm:flex-initial">
+          {/* Huawei Account Quick Status (Full Pill on md+, Compact Icon on <md) */}
           <button
-            onClick={() => setThemePopoverOpen((v) => !v)}
+            onClick={() => setHuaweiAuthModalOpen(true)}
+            title={
+              huaweiSource?.loggedIn
+                ? huaweiSource.accountName
+                : '连接华为音乐账号'
+            }
+            className="flex items-center justify-center gap-2 h-9 w-9 md:w-auto md:px-3.5 rounded-full bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.07] text-[12px] font-medium text-white/85 transition-colors cursor-pointer shrink-0 relative"
+          >
+            <span
+              className={`w-2 h-2 rounded-full shrink-0 md:static absolute top-1.5 right-1.5 ${
+                huaweiSource?.loggedIn ? 'bg-emerald-500' : 'bg-[#FA2D48]'
+              }`}
+            />
+            <QrCode className="w-3.5 h-3.5 text-white/60 shrink-0" />
+            <span className="hidden md:inline max-w-[120px] xl:max-w-[140px] truncate">
+              {huaweiSource?.loggedIn
+                ? huaweiSource.accountName.replace('华为账号 · ', '')
+                : '连接华为音乐'}
+            </span>
+          </button>
+
+          {/* Import Playlists Button */}
+          <button
+            onClick={() => setImportModalOpen(true)}
+            title="导入歌单"
+            className="w-9 h-9 rounded-full bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.07] flex items-center justify-center text-white/75 hover:text-white transition-colors cursor-pointer shrink-0"
+          >
+            <Download className="w-4 h-4" />
+          </button>
+
+          {/* HarmonyOS Circular Acoustic Wave / Theme Studio Button */}
+          <div className="relative shrink-0" ref={popoverRef}>
+            <button
+              onClick={() => setThemePopoverOpen((v) => !v)}
             title="主题外观与声学设定"
             className="w-9 h-9 rounded-full bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] flex items-center justify-center text-white/85 transition-colors cursor-pointer relative"
           >
@@ -334,19 +340,40 @@ export const TopSourceBar: React.FC = () => {
           </AnimatePresence>
         </div>
 
-        {/* HarmonyOS Rounded-Full Search Capsule (Exact match to `🔍 Search` in screenshot) */}
-        <form
-          onSubmit={handleHeaderSearch}
-          className="w-56 sm:w-72 xl:w-80 h-9 px-4 rounded-full bg-white/[0.06] border border-white/[0.08] focus-within:border-[#FA2D48]/60 flex items-center gap-2.5 transition-colors"
-        >
-          <Search className="w-3.5 h-3.5 text-white/45 shrink-0" />
-          <input
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search"
-            className="w-full bg-transparent text-[13px] text-white placeholder-white/40 focus:outline-none"
-          />
-        </form>
+          {/* HarmonyOS Rounded-Full Search Capsule */}
+          <form
+            onSubmit={handleHeaderSearch}
+            className="w-36 sm:w-52 md:w-64 xl:w-80 flex-1 sm:flex-initial max-w-[320px] min-w-[116px] h-9 px-3.5 sm:px-4 rounded-full bg-white/[0.06] border border-white/[0.08] focus-within:border-[#FA2D48]/60 flex items-center gap-2 transition-colors"
+          >
+            <Search className="w-3.5 h-3.5 text-white/45 shrink-0" />
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search"
+              className="w-full bg-transparent text-[13px] text-white placeholder-white/40 focus:outline-none min-w-0"
+            />
+          </form>
+        </div>
+      </div>
+
+      {/* Compact Scrollable Source Filter Bar on Narrow / Split-Screen (<1024px) */}
+      <div className="flex lg:hidden items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+        {SOURCE_FILTERS.map((filter) => {
+          const isActive = activeSourceFilter === filter.id;
+          return (
+            <button
+              key={filter.id}
+              onClick={() => setActiveSourceFilter(filter.id)}
+              className={`px-3 py-1 rounded-full text-[11.5px] transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                isActive
+                  ? 'bg-white/[0.15] text-white font-semibold shadow-xs'
+                  : 'bg-white/[0.04] text-white/55 hover:text-white/90 border border-white/[0.05]'
+              }`}
+            >
+              {filter.label}
+            </button>
+          );
+        })}
       </div>
     </header>
   );
