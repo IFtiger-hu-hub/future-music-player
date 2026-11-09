@@ -11,10 +11,22 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::OnceLock;
 use url::Url;
 
 pub const BRIDGE_PORT: u16 = 19420;
 static ACTIVE_BRIDGE_PORT: AtomicU16 = AtomicU16::new(BRIDGE_PORT);
+static SHARED_HTTP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+fn http_client() -> &'static reqwest::Client {
+    SHARED_HTTP_CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(25))
+            .pool_max_idle_per_host(4)
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new())
+    })
+}
 
 pub fn active_bridge_port() -> u16 {
     ACTIVE_BRIDGE_PORT.load(Ordering::Relaxed)
@@ -239,10 +251,7 @@ fn extract_lyric_urls_from_play_data(play_data: &Value) -> (String, String, Stri
 }
 
 async fn huawei_post(token: &str, path: &str, body: Value) -> Result<Value, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(20))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = http_client();
     let auth = build_music_digest_header(token, &now_iso8601_utc())?;
     let resp = client
         .post(format!("{}{}", MUSIC_ENDPOINT, path))
@@ -257,10 +266,7 @@ async fn huawei_post(token: &str, path: &str, body: Value) -> Result<Value, Stri
 }
 
 async fn huawei_get(token: &str, path_with_query: &str) -> Result<Value, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(20))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = http_client();
     let auth = build_music_digest_header(token, &now_iso8601_utc())?;
     let resp = client
         .get(format!("{}{}", MUSIC_ENDPOINT, path_with_query))
@@ -317,10 +323,14 @@ fn normalize_provider_track(item: &Value) -> Option<Value> {
 
     let mut cover = String::new();
     if let Some(pic) = item.get("picture") {
-        for k in ["bigImgURL", "middleImgURL", "smallImgURL"] {
+        // Prefer middleImgURL/smallImgURL for track lists so WebKit does not decode
+        // 150+ 1000x1000 (4MB each) uncompressed bitmaps into RAM at once.
+        for k in ["middleImgURL", "smallImgURL", "bigImgURL"] {
             if let Some(u) = pic.get(k).and_then(|v| v.as_str()) {
                 if is_safe_resource_url(u) {
-                    cover = u.to_string();
+                    cover = u
+                        .replace("music_cover_1000x1000.", "music_cover_300x300.")
+                        .replace("-1000X1000-", "-300X300-");
                     break;
                 }
             }
@@ -627,7 +637,7 @@ pub async fn handle_resolve(session: Option<&MusicSession>, body: &Value) -> Res
     }
 
     let (lrc_url, hmrc_url, inline_text) = extract_lyric_urls_from_play_data(&play_data);
-    let client = reqwest::Client::new();
+    let client = http_client();
     let mut parsed_lines: Vec<LyricLine> = Vec::new();
 
     if !hmrc_url.is_empty() {
@@ -744,10 +754,7 @@ fn proxy_huawei_stream(mut stream: TcpStream, raw_url: &str, range_header: Optio
     }
     let url_owned = raw_url.to_string();
     let _ = tauri::async_runtime::block_on(async move {
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(120))
-            .build()
-            .ok()?;
+        let client = http_client();
         let mut req = client.get(&url_owned).header("User-Agent", "tinglan-native/0.1");
         if let Some(ref r) = range_header {
             req = req.header("Range", r);
@@ -841,29 +848,26 @@ fn serve_local_file_stream(mut stream: TcpStream, file_path: &str, range_header:
             .unwrap_or_else(|| total.saturating_sub(1))
             .min(total.saturating_sub(1));
         if start <= end && start < total {
-            let chunk_len = (end - start + 1) as usize;
-            let mut buf = vec![0u8; chunk_len];
+            let chunk_len = end - start + 1;
             let _ = file.seek(SeekFrom::Start(start));
-            let _ = file.read_exact(&mut buf);
             let hdr = format!(
                 "HTTP/1.1 206 Partial Content\r\nContent-Type: {}\r\nContent-Length: {}\r\nContent-Range: bytes {}-{}/{}\r\nAccept-Ranges: bytes\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n",
                 mime, chunk_len, start, end, total
             );
             let _ = stream.write_all(hdr.as_bytes());
-            let _ = stream.write_all(&buf);
+            let mut limited = file.take(chunk_len);
+            let _ = std::io::copy(&mut limited, &mut stream);
             return;
         }
     }
 
-    let mut buf = Vec::new();
-    let _ = file.read_to_end(&mut buf);
     let hdr = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n",
         mime,
-        buf.len()
+        total
     );
     let _ = stream.write_all(hdr.as_bytes());
-    let _ = stream.write_all(&buf);
+    let _ = std::io::copy(&mut file, &mut stream);
 }
 
 /// Reads the full HTTP request headers AND full `Content-Length` body across multiple TCP packets.

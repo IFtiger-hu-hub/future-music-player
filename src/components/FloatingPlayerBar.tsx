@@ -67,6 +67,35 @@ const HARMONY_BOTTOM_TABS: Array<{
   },
 ];
 
+const MiniCapsuleProgressLine: React.FC<{
+  totalDurationMs: number;
+  seekToMs: (ms: number) => void;
+}> = ({ totalDurationMs, seekToMs }) => {
+  const currentTimeMs = usePlayerStore((s) => s.currentTimeMs);
+  const progressPercent = Math.min(100, (currentTimeMs / totalDurationMs) * 100);
+  return (
+    <div
+      onClick={(e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const ratio = Math.max(
+          0,
+          Math.min(1, (e.clientX - rect.left) / rect.width)
+        );
+        seekToMs(Math.floor(ratio * totalDurationMs));
+      }}
+      className="absolute bottom-0 left-6 right-6 h-[2.5px] bg-white/[0.1] cursor-pointer"
+    >
+      <div
+        className="h-full rounded-full transition-all duration-75"
+        style={{
+          width: `${progressPercent}%`,
+          backgroundColor: 'var(--theme-accent)',
+        }}
+      />
+    </div>
+  );
+};
+
 export const FloatingPlayerBar: React.FC = () => {
   const activeNav = usePlayerStore((s) => s.activeNav);
   const setActiveNav = usePlayerStore((s) => s.setActiveNav);
@@ -74,7 +103,6 @@ export const FloatingPlayerBar: React.FC = () => {
   const activeSourceForPlayback = usePlayerStore((s) => s.activeSourceForPlayback);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
   const isResolvingAudio = usePlayerStore((s) => s.isResolvingAudio);
-  const currentTimeMs = usePlayerStore((s) => s.currentTimeMs);
   const volume = usePlayerStore((s) => s.volume);
   const eqBands = usePlayerStore((s) => s.eqBands);
   const isStageOpen = usePlayerStore((s) => s.isStageOpen);
@@ -125,14 +153,20 @@ export const FloatingPlayerBar: React.FC = () => {
   }, [isPlaying, currentTrack.audioUrl]);
 
   useEffect(() => {
-    if (!isPlaying || (!isStageOpen && !isDesktopLyricOpen)) return;
+    const inTauri =
+      typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+    // In Tauri, the standalone OS desktop lyric window interpolates 60fps locally,
+    // so the main window only needs 40Hz rAF store updates when the fullscreen stage is open.
+    const needsHighFreqStoreSync =
+      isStageOpen || (!inTauri && isDesktopLyricOpen);
+    if (!isPlaying || !needsHighFreqStoreSync) return;
     let rafId = 0;
     let lastDispatchedMs = -1;
     const tick = () => {
       const el = audioRef.current;
       if (el && !el.paused && Number.isFinite(el.currentTime)) {
         const nowMs = Math.floor(el.currentTime * 1000);
-        if (Math.abs(nowMs - lastDispatchedMs) >= 24) {
+        if (Math.abs(nowMs - lastDispatchedMs) >= 32) {
           lastDispatchedMs = nowMs;
           setCurrentTimeMs(nowMs);
         }
@@ -153,7 +187,6 @@ export const FloatingPlayerBar: React.FC = () => {
   }, [currentTrack.audioUrl]);
 
   const totalDurationMs = Math.max(1000, currentTrack.durationSeconds * 1000);
-  const progressPercent = Math.min(100, (currentTimeMs / totalDurationMs) * 100);
 
   return (
     <div className="fixed bottom-5 left-8 right-8 xl:left-12 xl:right-12 z-30 pointer-events-none flex items-center justify-between gap-4 select-none">
@@ -229,25 +262,10 @@ export const FloatingPlayerBar: React.FC = () => {
       {/* Bottom-Right Floating HarmonyOS Vinyl Mini-Player Capsule (Exact Match to Screenshot) */}
       <div className="pointer-events-auto h-[62px] pl-2.5 pr-4 rounded-full theme-harmony-dock backdrop-blur-2xl border flex items-center gap-4 min-w-[320px] sm:min-w-[400px] max-w-[540px] relative overflow-hidden">
         {/* Subtle Bottom Progress Line Inside Capsule */}
-        <div
-          onClick={(e) => {
-            const rect = e.currentTarget.getBoundingClientRect();
-            const ratio = Math.max(
-              0,
-              Math.min(1, (e.clientX - rect.left) / rect.width)
-            );
-            seekToMs(Math.floor(ratio * totalDurationMs));
-          }}
-          className="absolute bottom-0 left-6 right-6 h-[2.5px] bg-white/[0.1] cursor-pointer"
-        >
-          <div
-            className="h-full rounded-full transition-all duration-75"
-            style={{
-              width: `${progressPercent}%`,
-              backgroundColor: 'var(--theme-accent)',
-            }}
-          />
-        </div>
+        <MiniCapsuleProgressLine
+          totalDurationMs={totalDurationMs}
+          seekToMs={seekToMs}
+        />
 
         {/* Left: Composite Black Vinyl Record + Circular Album Cover */}
         <div

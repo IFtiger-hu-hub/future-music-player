@@ -279,7 +279,9 @@ fn set_desktop_lyric_open(app: AppHandle, open: bool, locked: bool) -> Result<()
         let _ = win.set_always_on_top(true);
         let _ = win.set_ignore_cursor_events(locked);
     } else if let Some(win) = app.get_webview_window("desktop-lyric") {
-        let _ = win.hide();
+        // Destroy the secondary WebviewWindow when closed so its WebKitWebProcess
+        // exits immediately and frees ~140MB of renderer memory.
+        let _ = win.close();
     }
     Ok(())
 }
@@ -409,9 +411,7 @@ pub fn run() {
                     let _ = window.hide();
                 }
             } else if window.label() == "desktop-lyric" {
-                if let WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    let _ = window.hide();
+                if let WindowEvent::Destroyed = event {
                     let _ = window.app_handle().emit("desktop-lyric-closed", ());
                 }
             }

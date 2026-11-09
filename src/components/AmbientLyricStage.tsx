@@ -114,22 +114,14 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
 
   return (
     <>
-      {/* HarmonyOS NEXT Dynamic Optical Background (GPU-composited) */}
+      {/* HarmonyOS NEXT Dynamic Optical Background (Zero-FBO radial mesh) */}
       <div
         className="absolute inset-0 pointer-events-none overflow-hidden"
         style={{
-          contain: 'strict',
-          background: `radial-gradient(circle at 24% 32%, ${c1}d9 0%, transparent 56%), radial-gradient(circle at 76% 72%, ${c2}bf 0%, transparent 60%), linear-gradient(155deg, #16171D 0%, ${c3} 100%)`,
+          background: `radial-gradient(circle at 24% 32%, ${c1}e6 0%, transparent 58%), radial-gradient(circle at 76% 72%, ${c2}cc 0%, transparent 62%), linear-gradient(155deg, #16171D 0%, ${c3} 100%)`,
         }}
       >
-        <img
-          src={currentTrack.coverUrl}
-          alt=""
-          decoding="async"
-          className="w-full h-full object-cover opacity-25 scale-110 blur-2xl"
-          style={{ transform: 'translateZ(0) scale(1.12)' }}
-        />
-        <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-black/45 to-black/70" />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-black/40 to-black/70" />
       </div>
 
       {/* 1. HarmonyOS Top Navigation Bar (PlayerNav) */}
@@ -689,22 +681,12 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
 export const AmbientLyricStage: React.FC = () => {
   const isStageOpen = usePlayerStore((s) => s.isStageOpen);
 
+  if (!isStageOpen) {
+    return null;
+  }
+
   return (
-    <div
-      aria-hidden={!isStageOpen}
-      style={{
-        willChange: 'transform, opacity',
-        contain: 'layout paint style',
-        transform: isStageOpen
-          ? 'translate3d(0, 0%, 0)'
-          : 'translate3d(0, 6%, 0)',
-        opacity: isStageOpen ? 1 : 0,
-        pointerEvents: isStageOpen ? 'auto' : 'none',
-        transition:
-          'transform 320ms cubic-bezier(0.22, 1, 0.36, 1), opacity 240ms cubic-bezier(0.22, 1, 0.36, 1)',
-      }}
-      className="fixed inset-0 z-50 flex flex-col justify-between overflow-hidden select-none bg-[#0E0F14]"
-    >
+    <div className="fixed inset-0 z-50 flex flex-col justify-between overflow-hidden select-none bg-[#0E0F14] animate-in fade-in duration-200">
       <ActiveStageBody isStageOpen={isStageOpen} />
     </div>
   );

@@ -17,6 +17,16 @@ export function formatDuration(seconds: number): string {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
+function toThumbnailCoverUrl(url: string): string {
+  if (!url) return url;
+  return url
+    .replace('music_cover_1000x1000.', 'music_cover_300x300.')
+    .replace('-1000X1000-', '-300X300-')
+    .replace('w=1200', 'w=160')
+    .replace('w=1000', 'w=160')
+    .replace('w=800', 'w=160');
+}
+
 interface TrackTableProps {
   tracks: CanonicalTrack[];
 }
@@ -65,6 +75,10 @@ export const TrackTable: React.FC<TrackTableProps> = ({ tracks }) => {
             <div
               key={track.id}
               onDoubleClick={() => playTrack(track)}
+              style={{
+                contentVisibility: 'auto',
+                containIntrinsicSize: '0 60px',
+              }}
               className={`group grid grid-cols-[44px_2.1fr_1.15fr_140px_76px] gap-4 items-center px-4 py-2.5 rounded-[14px] transition-colors duration-150 cursor-pointer ${
                 isCurrent
                   ? 'bg-[#FA2D48]/[0.08]'
@@ -128,8 +142,10 @@ export const TrackTable: React.FC<TrackTableProps> = ({ tracks }) => {
               >
                 <div className="relative w-11 h-11 rounded-[10px] overflow-hidden shrink-0 bg-white/5 ring-1 ring-black/[0.06] shadow-xs">
                   <img
-                    src={track.coverUrl}
+                    src={toThumbnailCoverUrl(track.coverUrl)}
                     alt={track.title}
+                    width={44}
+                    height={44}
                     loading="lazy"
                     decoding="async"
                     className="w-full h-full object-cover"
