@@ -16,6 +16,7 @@ export interface HuaweiSessionStatus {
   loggedIn: boolean;
   snsUserID?: string;
   snsUserId?: string;
+  expireTime?: string;
 }
 
 export interface ResolvedStreamResult {
@@ -51,8 +52,14 @@ export const musicGateway = {
   async fetchHuaweiStatus(): Promise<HuaweiSessionStatus | null> {
     try {
       const res = await fetch(apiUrl('/api/huawei/status'));
-      if (!res.ok) return null;
-      return await res.json();
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {
+      // fallback to Tauri IPC below
+    }
+    try {
+      return await invoke<HuaweiSessionStatus>('get_huawei_status');
     } catch {
       return null;
     }

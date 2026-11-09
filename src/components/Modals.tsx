@@ -14,6 +14,7 @@ import {
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { usePlayerStore } from '../store/usePlayerStore';
+import { musicGateway } from '../services/musicGateway';
 
 interface HuaweiAuthSuccessDto {
   sns_user_id: string;
@@ -32,6 +33,7 @@ export const HuaweiAuthModal: React.FC = () => {
   const [statusText, setStatusText] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [baselineExpireTime, setBaselineExpireTime] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -46,9 +48,11 @@ export const HuaweiAuthModal: React.FC = () => {
 
     listen<HuaweiAuthSuccessDto>('huawei-auth-success', (event) => {
       setIsLoading(false);
+      setStatusText('');
       const { sns_user_id } = event.payload;
       completeHuaweiReauth(`华为账号 · ${sns_user_id}`);
-      triggerHuaweiSync();
+      pushToast('华为账号登录成功', '正在为您同步云端喜爱歌曲与歌单...', 'success');
+      void triggerHuaweiSync();
     })
       .then((fn) => {
         unlistenSuccess = fn;
@@ -68,12 +72,53 @@ export const HuaweiAuthModal: React.FC = () => {
       if (unlistenSuccess) unlistenSuccess();
       if (unlistenError) unlistenError();
     };
-  }, [completeHuaweiReauth, triggerHuaweiSync]);
+  }, [completeHuaweiReauth, pushToast, triggerHuaweiSync]);
 
-  // Primary Action: Launch real Huawei login popup window (works in both `pnpm dev` via CDP Bridge and `pnpm tauri dev`)
+  // Poll session status every 800ms while waiting for QR scan so completion is detected immediately
+  useEffect(() => {
+    if (!isOpen || !isLoading) return;
+    let cancelled = false;
+    const timer = setInterval(async () => {
+      const st = await musicGateway.fetchHuaweiStatus();
+      if (cancelled || !st?.loggedIn) return;
+      const uid = st.snsUserID || st.snsUserId;
+      if (!uid) return;
+      // If a new expireTime appeared or there was no baseline session before
+      if (!baselineExpireTime || (st.expireTime && st.expireTime !== baselineExpireTime)) {
+        cancelled = true;
+        setIsLoading(false);
+        setStatusText('');
+        completeHuaweiReauth(`华为账号 · ${uid}`);
+        pushToast('华为账号登录成功', '正在为您同步云端喜爱歌曲与歌单...', 'success');
+        void triggerHuaweiSync();
+      }
+    }, 800);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [isOpen, isLoading, baselineExpireTime, completeHuaweiReauth, pushToast, triggerHuaweiSync]);
+
+  // Primary Action: Launch real Huawei login popup window
   const handleLaunchHuaweiPopup = async () => {
+    const before = await musicGateway.fetchHuaweiStatus();
+    setBaselineExpireTime(before?.expireTime || null);
     setIsLoading(true);
     setStatusText('正在唤起华为官方扫码窗口，请在弹出的窗口中扫码或输入账号登录...');
+
+    // If running inside Tauri desktop app, open controlled WebView window directly
+    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+      try {
+        await invoke<string>('start_huawei_webview_login');
+        setStatusText('华为登录窗口已打开，扫码完成后将自动关闭并同步资产');
+        return;
+      } catch (err) {
+        setIsLoading(false);
+        setStatusText(`无法打开登录窗口: ${String(err)}`);
+        return;
+      }
+    }
+
     try {
       const resp = await fetch('/api/huawei/login-popup', { method: 'POST' });
       const data = await resp.json();
@@ -85,18 +130,11 @@ export const HuaweiAuthModal: React.FC = () => {
       completeHuaweiReauth(`华为账号 · ${data.snsUserID || data.snsUserId}`);
       pushToast('华为账号登录成功', '正在为您同步云端喜爱歌曲与歌单...', 'success');
       await triggerHuaweiSync();
-      return;
     } catch (bridgeErr) {
-      // Fallback to Tauri native WebView window if running in packaged Tauri app
-      try {
-        await invoke<string>('start_huawei_webview_login');
-        setStatusText('华为登录窗口已打开，扫码完成后将自动关闭并同步资产');
-      } catch {
-        setIsLoading(false);
-        setStatusText(
-          bridgeErr instanceof Error ? bridgeErr.message : '登录窗口已关闭或超时，请重试'
-        );
-      }
+      setIsLoading(false);
+      setStatusText(
+        bridgeErr instanceof Error ? bridgeErr.message : '登录窗口已关闭或超时，请重试'
+      );
     }
   };
 

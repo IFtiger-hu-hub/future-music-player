@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <!-- Deep Obsidian Studio Base -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E1B32" />
+      <stop offset="50%" stop-color="#11131F" />
+      <stop offset="100%" stop-color="#08090F" />
+    </linearGradient>
+
+    <!-- Aurora Acoustic Ring & Beam Gradient -->
+    <linearGradient id="auroraGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8" />
+      <stop offset="50%" stop-color="#818CF8" />
+      <stop offset="100%" stop-color="#F43F5E" />
+    </linearGradient>
+
+    <!-- Pure Silver-White Note Gradient -->
+    <linearGradient id="noteGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="100%" stop-color="#E2E8F0" />
+    </linearGradient>
+
+    <filter id="dropShadow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000000" flood-opacity="0.55" />
+    </filter>
+  </defs>
+
+  <!-- Dock Squircle Container -->
+  <rect x="76" y="76" width="872" height="872" rx="204" fill="url(#bgGrad)" filter="url(#dropShadow)" />
+  <rect x="79" y="79" width="866" height="866" rx="201" fill="none" stroke="url(#auroraGrad)" stroke-width="6" stroke-opacity="0.5" />
+
+  <!-- Outer Vinyl Grooves -->
+  <circle cx="512" cy="512" r="342" fill="none" stroke="#FFFFFF" stroke-opacity="0.06" stroke-width="3" />
+  <circle cx="512" cy="512" r="300" fill="none" stroke="#FFFFFF" stroke-opacity="0.09" stroke-width="3" />
+
+  <!-- Glowing Aurora Ring -->
+  <circle cx="512" cy="512" r="252" fill="none" stroke="url(#auroraGrad)" stroke-width="26" />
+
+  <!-- Center Dark Studio Disc -->
+  <circle cx="512" cy="512" r="206" fill="#0E101A" stroke="#FFFFFF" stroke-opacity="0.1" stroke-width="3" />
+
+  <!-- Unified Continuous Double Eighth Note (♫) -->
+  <g filter="url(#dropShadow)">
+    <!-- Single unified path for the two stems + double slanted beams -->
+    <path
+      d="M426 356
+         C426 344 434 334 446 332
+         L624 298
+         C638 295 650 306 650 320
+         L650 554
+         L608 554
+         L608 394
+         L468 421
+         L468 590
+         L426 590
+         Z"
+      fill="url(#noteGrad)"
+    />
+    <!-- Accent Aurora Top Ribbon on the Beam -->
+    <path
+      d="M426 356
+         C426 344 434 334 446 332
+         L624 298
+         C638 295 650 306 650 320
+         L650 356
+         L426 399
+         Z"
+      fill="url(#auroraGrad)"
+    />
+    <!-- Left Note Head (smoothly joined to left stem right edge at x=468) -->
+    <ellipse cx="412" cy="592" rx="60" ry="45" transform="rotate(-18 412 592)" fill="url(#noteGrad)" />
+    <!-- Right Note Head (smoothly joined to right stem right edge at x=650) -->
+    <ellipse cx="594" cy="554" rx="60" ry="45" transform="rotate(-18 594 554)" fill="url(#noteGrad)" />
+  </g>
+</svg>

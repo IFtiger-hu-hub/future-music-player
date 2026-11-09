@@ -44,6 +44,22 @@ pub struct HuaweiAuthSuccessPayload {
 }
 
 #[tauri::command]
+fn get_huawei_status(state: State<'_, AppRuntimeState>) -> serde_json::Value {
+    if let Some(sess) = bridge_server::load_persisted_session() {
+        if let Ok(mut guard) = state.active_session.lock() {
+            *guard = Some(sess.clone());
+        }
+        return serde_json::json!({
+            "loggedIn": true,
+            "snsUserID": sess.sns_user_id,
+            "snsUserId": sess.sns_user_id,
+            "expireTime": sess.expire_time,
+        });
+    }
+    serde_json::json!({ "loggedIn": false })
+}
+
+#[tauri::command]
 fn get_huawei_auth_contract(state: State<'_, AppRuntimeState>) -> HuaweiAuthPreview {
     let attempt = huawei::AuthAttempt::new(huawei::now_epoch_secs());
     let auth_url = attempt.authorize_url();
@@ -205,6 +221,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(AppRuntimeState::default())
         .invoke_handler(tauri::generate_handler![
+            get_huawei_status,
             get_huawei_auth_contract,
             start_huawei_webview_login,
             submit_huawei_callback_url,
