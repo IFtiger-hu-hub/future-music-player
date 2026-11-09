@@ -33,14 +33,14 @@ export const SettingsView: React.FC = () => {
         <div className="flex items-center gap-2.5">
           <button
             onClick={() => setActiveNav('sources')}
-            className="h-9 px-5 rounded-full surface-bento hover:bg-white/[0.1] text-white/75 text-[13px] font-semibold flex items-center gap-2 transition-colors cursor-pointer"
+            className="h-9 px-5 rounded-full btn-harmony-secondary text-[13px] font-semibold flex items-center gap-2 cursor-pointer"
           >
             <Disc3 className="w-3.5 h-3.5" />
             <span>音源与账号管理</span>
           </button>
           <button
             onClick={() => setActiveNav('settings')}
-            className="h-9 px-5 rounded-full bg-[#24262A] !text-white text-[13px] font-semibold flex items-center gap-2 shadow-xs cursor-pointer"
+            className="h-9 px-5 rounded-full btn-harmony-active text-[13px] font-semibold flex items-center gap-2 cursor-pointer"
           >
             <SlidersHorizontal className="w-3.5 h-3.5 !text-white" />
             <span>音效与主题外观</span>
@@ -52,7 +52,7 @@ export const SettingsView: React.FC = () => {
             resetAppearance();
             setThemeId('light');
           }}
-          className="h-9 px-4 rounded-full surface-bento hover:bg-white/[0.1] text-[12px] font-medium text-white/80 flex items-center gap-1.5 cursor-pointer transition-colors"
+          className="h-9 px-4 rounded-full btn-harmony-secondary text-[12px] font-semibold flex items-center gap-1.5 cursor-pointer"
         >
           <RotateCcw className="w-3.5 h-3.5" />
           <span>恢复鸿蒙默认浅色</span>
@@ -247,15 +247,10 @@ export const SettingsView: React.FC = () => {
               <button
                 key={preset.id}
                 onClick={() => applyEqPreset(preset.id)}
-                style={
+                className={`px-3.5 py-1 rounded-full text-[12px] font-semibold cursor-pointer ${
                   eqPreset === preset.id
-                    ? { backgroundColor: 'var(--theme-accent)' }
-                    : undefined
-                }
-                className={`px-3.5 py-1 rounded-full text-[12px] font-medium cursor-pointer transition-colors ${
-                  eqPreset === preset.id
-                    ? '!text-white shadow-xs'
-                    : 'bg-white/[0.06] text-white/65 hover:text-white border border-white/[0.07]'
+                    ? 'btn-harmony-primary'
+                    : 'btn-harmony-secondary'
                 }`}
               >
                 {preset.label}
@@ -330,7 +325,7 @@ export const SettingsView: React.FC = () => {
               ) : (
                 <button
                   onClick={() => revokeMergeDecision(audit.id)}
-                  className="h-8 px-4 rounded-full bg-white/[0.07] hover:bg-white/[0.13] border border-white/[0.07] text-xs font-medium text-white cursor-pointer transition-colors"
+                  className="h-8 px-4 rounded-full btn-harmony-secondary text-xs font-semibold cursor-pointer"
                 >
                   拆分曲目
                 </button>

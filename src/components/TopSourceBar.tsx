@@ -114,16 +114,16 @@ export const TopSourceBar: React.FC = () => {
             {NAV_TITLES[activeNav] || '推荐'}
           </h1>
 
-          <div className="hidden lg:flex items-center gap-1 p-1 rounded-full bg-white/[0.05] border border-white/[0.06]">
+          <div className="hidden lg:flex items-center gap-1 p-1 rounded-full surface-bento">
             {SOURCE_FILTERS.map((filter) => {
               const isActive = activeSourceFilter === filter.id;
               return (
                 <button
                   key={filter.id}
                   onClick={() => setActiveSourceFilter(filter.id)}
-                  className={`relative px-3 py-1 rounded-full text-[12px] transition-colors cursor-pointer whitespace-nowrap ${
+                  className={`relative px-3.5 py-1 rounded-full text-[12px] transition-colors cursor-pointer whitespace-nowrap ${
                     isActive
-                      ? 'text-white font-semibold'
+                      ? '!text-white font-semibold'
                       : 'text-white/55 hover:text-white/90'
                   }`}
                 >
@@ -131,7 +131,7 @@ export const TopSourceBar: React.FC = () => {
                     <motion.div
                       layoutId="harmony-source-segment"
                       transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-                      className="absolute inset-0 rounded-full bg-white/[0.14] shadow-xs"
+                      className="absolute inset-0 rounded-full btn-harmony-active"
                     />
                   )}
                   <span className="relative z-10">{filter.label}</span>
@@ -151,7 +151,7 @@ export const TopSourceBar: React.FC = () => {
                 ? huaweiSource.accountName
                 : '连接华为音乐账号'
             }
-            className="flex items-center justify-center gap-2 h-9 w-9 md:w-auto md:px-3.5 rounded-full bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.07] text-[12px] font-medium text-white/85 transition-colors cursor-pointer shrink-0 relative"
+            className="flex items-center justify-center gap-2 h-9 w-9 md:w-auto md:px-3.5 rounded-full btn-harmony-secondary text-[12px] font-semibold cursor-pointer shrink-0 relative"
           >
             <span
               className={`w-2 h-2 rounded-full shrink-0 md:static absolute top-1.5 right-1.5 ${
@@ -170,7 +170,7 @@ export const TopSourceBar: React.FC = () => {
           <button
             onClick={() => setImportModalOpen(true)}
             title="导入歌单"
-            className="w-9 h-9 rounded-full bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.07] flex items-center justify-center text-white/75 hover:text-white transition-colors cursor-pointer shrink-0"
+            className="w-9 h-9 rounded-full btn-harmony-secondary flex items-center justify-center text-white/75 hover:text-white cursor-pointer shrink-0"
           >
             <Download className="w-4 h-4" />
           </button>
@@ -179,9 +179,9 @@ export const TopSourceBar: React.FC = () => {
           <div className="relative shrink-0" ref={popoverRef}>
             <button
               onClick={() => setThemePopoverOpen((v) => !v)}
-            title="主题外观与声学设定"
-            className="w-9 h-9 rounded-full bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] flex items-center justify-center text-white/85 transition-colors cursor-pointer relative"
-          >
+              title="主题外观与声学设定"
+              className="w-9 h-9 rounded-full btn-harmony-secondary flex items-center justify-center text-white/85 cursor-pointer relative"
+            >
             <AudioLines className="w-4 h-4" />
             <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-[#FA2D48]" />
           </button>
@@ -343,13 +343,13 @@ export const TopSourceBar: React.FC = () => {
           {/* HarmonyOS Rounded-Full Search Capsule */}
           <form
             onSubmit={handleHeaderSearch}
-            className="w-36 sm:w-52 md:w-64 xl:w-80 flex-1 sm:flex-initial max-w-[320px] min-w-[116px] h-9 px-3.5 sm:px-4 rounded-full bg-white/[0.06] border border-white/[0.08] focus-within:border-[#FA2D48]/60 flex items-center gap-2 transition-colors"
+            className="w-36 sm:w-52 md:w-64 xl:w-80 flex-1 sm:flex-initial max-w-[320px] min-w-[116px] h-9 px-3.5 sm:px-4 rounded-full surface-bento focus-within:ring-2 focus-within:ring-[#FA2D48]/35 flex items-center gap-2 transition-all"
           >
             <Search className="w-3.5 h-3.5 text-white/45 shrink-0" />
             <input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search"
+              placeholder="搜索歌曲、歌手..."
               className="w-full bg-transparent text-[13px] text-white placeholder-white/40 focus:outline-none min-w-0"
             />
           </form>
@@ -364,10 +364,8 @@ export const TopSourceBar: React.FC = () => {
             <button
               key={filter.id}
               onClick={() => setActiveSourceFilter(filter.id)}
-              className={`px-3 py-1 rounded-full text-[11.5px] transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                isActive
-                  ? 'bg-white/[0.15] text-white font-semibold shadow-xs'
-                  : 'bg-white/[0.04] text-white/55 hover:text-white/90 border border-white/[0.05]'
+              className={`px-3.5 py-1 rounded-full text-[11.5px] font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
+                isActive ? 'btn-harmony-active' : 'btn-harmony-secondary'
               }`}
             >
               {filter.label}

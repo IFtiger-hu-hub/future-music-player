@@ -16,14 +16,14 @@ export const SourcesView: React.FC = () => {
         <div className="flex items-center gap-2.5">
           <button
             onClick={() => setActiveNav('sources')}
-            className="h-9 px-5 rounded-full bg-[#24262A] !text-white text-[13px] font-semibold flex items-center gap-2 shadow-xs cursor-pointer"
+            className="h-9 px-5 rounded-full btn-harmony-active text-[13px] font-semibold flex items-center gap-2 cursor-pointer"
           >
             <Disc3 className="w-3.5 h-3.5 !text-white" />
             <span>音源与账号管理</span>
           </button>
           <button
             onClick={() => setActiveNav('settings')}
-            className="h-9 px-5 rounded-full surface-bento hover:bg-white/[0.1] text-white/75 text-[13px] font-semibold flex items-center gap-2 transition-colors cursor-pointer"
+            className="h-9 px-5 rounded-full btn-harmony-secondary text-[13px] font-semibold flex items-center gap-2 cursor-pointer"
           >
             <SlidersHorizontal className="w-3.5 h-3.5" />
             <span>音效与主题外观</span>
@@ -95,7 +95,7 @@ export const SourcesView: React.FC = () => {
                 {src.id === 'local' ? (
                   <button
                     onClick={scanLocalFolder}
-                    className="h-8.5 px-4 rounded-full bg-white/[0.07] hover:bg-white/[0.13] border border-white/[0.08] text-[12px] font-medium text-white flex items-center gap-1.5 cursor-pointer transition-colors"
+                    className="h-8.5 px-4 rounded-full btn-harmony-secondary text-[12px] font-semibold flex items-center gap-1.5 cursor-pointer"
                   >
                     <FolderOpen className="w-3.5 h-3.5" />
                     <span>扫描本地目录</span>
@@ -105,17 +105,17 @@ export const SourcesView: React.FC = () => {
                     {src.id === 'huawei' && src.loggedIn && (
                       <button
                         onClick={triggerHuaweiSync}
-                        className="h-8.5 px-4 rounded-full bg-white/[0.07] hover:bg-white/[0.13] border border-white/[0.08] text-[12px] font-medium text-white cursor-pointer transition-colors"
+                        className="h-8.5 px-4 rounded-full btn-harmony-secondary text-[12px] font-semibold cursor-pointer"
                       >
                         同步云端资产
                       </button>
                     )}
                     <button
                       onClick={() => toggleSourceLogin(src.id)}
-                      className={`h-8.5 px-4 rounded-full text-[12px] font-semibold cursor-pointer transition-colors ${
+                      className={`h-8.5 px-4 rounded-full text-[12px] font-semibold cursor-pointer ${
                         src.id === 'huawei' && !src.loggedIn
-                          ? 'bg-[#FA2D48] hover:bg-[#FF3B56] !text-white shadow-xs'
-                          : 'bg-white/[0.07] hover:bg-white/[0.13] border border-white/[0.08] text-white'
+                          ? 'btn-harmony-primary'
+                          : 'btn-harmony-secondary'
                       }`}
                     >
                       {src.id === 'huawei'

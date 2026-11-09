@@ -42,12 +42,17 @@
     font-variant-numeric: tabular-nums;
     font-size: 9.5px;
     font-weight: 700;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.04em;
     line-height: 1;
-    padding: 2.5px 5.5px;
-    border-radius: 5px;
-    border: 1px solid rgba(250, 45, 72, 0.3);
-    background-color: rgba(250, 45, 72, 0.08);
+    padding: 3px 6.5px;
+    border-radius: 6px;
+    border: 1px solid color-mix(in srgb, var(--theme-accent) 28%, transparent);
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--theme-accent) 13%, transparent) 0%,
+      color-mix(in srgb, var(--theme-accent) 7%, transparent) 100%
+    );
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
     color: var(--theme-accent);
   }
 
@@ -55,14 +60,200 @@
   .surface-bento {
     background-color: var(--theme-surface);
     border: 1px solid var(--theme-border);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.035);
+    box-shadow:
+      0 1px 2px rgba(15, 23, 42, 0.025),
+      0 10px 28px -6px rgba(15, 23, 42, 0.045),
+      inset 0 1px 0 rgba(255, 255, 255, 0.85);
   }
 }
 
 html[data-theme-mode="dark"] .surface-bento {
   background-color: color-mix(in srgb, var(--theme-surface) 92%, rgba(255, 255, 255, 0.04));
   border: 1px solid var(--theme-border);
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+  box-shadow:
+    0 10px 32px -6px rgba(0, 0, 0, 0.36),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+/* Tactile HarmonyOS NEXT / Apple Music Button & Control System */
+.btn-harmony-primary {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--theme-accent) 90%, #ffffff 10%) 0%,
+    var(--theme-accent) 100%
+  );
+  color: #ffffff !important;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 82%, #000000 18%);
+  box-shadow:
+    0 4px 14px -2px color-mix(in srgb, var(--theme-accent) 42%, transparent),
+    0 1px 2px rgba(15, 23, 42, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.34);
+  transition:
+    transform 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 160ms ease,
+    filter 160ms ease;
+}
+
+.btn-harmony-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+  filter: brightness(1.04);
+  box-shadow:
+    0 7px 20px -3px color-mix(in srgb, var(--theme-accent) 52%, transparent),
+    0 2px 4px rgba(15, 23, 42, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.42);
+}
+
+.btn-harmony-primary:active:not(:disabled) {
+  transform: translateY(0) scale(0.97);
+}
+
+.btn-harmony-active {
+  background: linear-gradient(180deg, #2C2F37 0%, #1A1C22 100%);
+  color: #ffffff !important;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow:
+    0 5px 15px -3px rgba(15, 23, 42, 0.22),
+    0 1px 2px rgba(15, 23, 42, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  transition:
+    transform 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 160ms ease;
+}
+
+.btn-harmony-active:hover {
+  transform: translateY(-0.5px);
+  box-shadow:
+    0 7px 18px -3px rgba(15, 23, 42, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+.btn-harmony-active:active {
+  transform: scale(0.97);
+}
+
+.btn-harmony-secondary {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--theme-surface) 98%, #ffffff 2%) 0%,
+    color-mix(in srgb, var(--theme-surface) 93%, var(--theme-elevated) 7%) 100%
+  );
+  color: var(--theme-text);
+  border: 1px solid color-mix(in srgb, var(--theme-text) 9%, transparent);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.035),
+    0 3px 10px -2px rgba(15, 23, 42, 0.035),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  transition:
+    transform 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    background 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.btn-harmony-secondary:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--theme-text) 16%, transparent);
+  box-shadow:
+    0 4px 14px -2px rgba(15, 23, 42, 0.075),
+    0 1px 3px rgba(15, 23, 42, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.btn-harmony-secondary:active {
+  transform: translateY(0) scale(0.97);
+}
+
+html[data-theme-mode="dark"] .btn-harmony-secondary {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.085) 0%,
+    rgba(255, 255, 255, 0.045) 100%
+  );
+  color: var(--theme-text);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 2px 10px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+html[data-theme-mode="dark"] .btn-harmony-secondary:hover {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.13) 0%,
+    rgba(255, 255, 255, 0.08) 100%
+  );
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow:
+    0 5px 16px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+/* Tactile Circular Play Button on Cards & Covers */
+.btn-play-fab {
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow:
+    0 8px 22px -2px rgba(0, 0, 0, 0.32),
+    0 0 0 1px rgba(255, 255, 255, 0.45),
+    inset 0 1px 0 #ffffff;
+  transition:
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 180ms ease,
+    background-color 180ms ease;
+}
+
+.btn-play-fab:hover {
+  background: #ffffff;
+  transform: scale(1.09);
+  box-shadow:
+    0 10px 26px -2px rgba(0, 0, 0, 0.42),
+    0 0 0 1.5px rgba(255, 255, 255, 0.75);
+}
+
+.btn-play-fab:active {
+  transform: scale(0.94);
+}
+
+/* Refined Track Row Source Switcher Chip */
+.source-chip {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--theme-surface) 88%, var(--theme-elevated) 12%);
+  border: 1px solid color-mix(in srgb, var(--theme-text) 9%, transparent);
+  color: var(--theme-secondary);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.025),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  transition: all 150ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.source-chip:hover {
+  color: var(--theme-text);
+  border-color: color-mix(in srgb, var(--theme-accent) 42%, transparent);
+  transform: translateY(-0.5px);
+}
+
+html[data-theme-mode="dark"] .source-chip {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.09);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.source-chip-active {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--theme-accent) 92%, #ffffff 8%) 0%,
+    var(--theme-accent) 100%
+  ) !important;
+  color: #ffffff !important;
+  border-color: color-mix(in srgb, var(--theme-accent) 85%, #000000 15%) !important;
+  box-shadow:
+    0 3px 10px -2px color-mix(in srgb, var(--theme-accent) 48%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.32) !important;
 }
 
 .app-shell-root {

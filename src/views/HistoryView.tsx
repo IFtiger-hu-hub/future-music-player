@@ -56,7 +56,7 @@ export const HistoryView: React.FC = () => {
         <div className="flex items-center gap-2.5 flex-wrap">
           <button
             onClick={scanLocalFolder}
-            className="h-9 px-4 rounded-full bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-[12.5px] font-medium text-white flex items-center gap-1.5 cursor-pointer transition-colors"
+            className="h-9 px-4 rounded-full btn-harmony-secondary text-[12.5px] font-semibold flex items-center gap-1.5 cursor-pointer"
           >
             <FolderOpen className="w-3.5 h-3.5" />
             <span>扫描本地无损目录</span>
@@ -65,7 +65,7 @@ export const HistoryView: React.FC = () => {
           {huaweiSource.loggedIn ? (
             <button
               onClick={triggerHuaweiSync}
-              className="h-9 px-4 rounded-full bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-[12.5px] font-medium text-white flex items-center gap-1.5 cursor-pointer transition-colors"
+              className="h-9 px-4 rounded-full btn-harmony-secondary text-[12.5px] font-semibold flex items-center gap-1.5 cursor-pointer"
             >
               <RefreshCw className="w-3.5 h-3.5" />
               <span>同步云端资产</span>
@@ -73,8 +73,7 @@ export const HistoryView: React.FC = () => {
           ) : (
             <button
               onClick={() => setHuaweiAuthModalOpen(true)}
-              style={{ backgroundColor: 'var(--theme-accent)' }}
-              className="h-9 px-4 rounded-full text-[12.5px] font-semibold !text-white flex items-center gap-1.5 shadow-sm cursor-pointer"
+              className="h-9 px-4 rounded-full btn-harmony-primary text-[12.5px] font-semibold flex items-center gap-1.5 cursor-pointer"
             >
               <QrCode className="w-3.5 h-3.5" />
               <span>扫码登录华为音乐</span>

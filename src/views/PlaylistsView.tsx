@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, RefreshCw, Play, Shuffle, Disc3 } from 'lucide-react';
+import { Plus, RefreshCw, Play, Shuffle, Disc3, ArrowLeft } from 'lucide-react';
 import { usePlayerStore } from '../store/usePlayerStore';
 import { TrackTable } from '../components/TrackTable';
 
@@ -33,23 +33,28 @@ export const PlaylistsView: React.FC = () => {
     <div className="space-y-6">
       {/* Top HarmonyOS Capsule Switcher & Horizontal Playlist Selector */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap">
+          <button
+            onClick={() => setActiveNav('favorites')}
+            className="h-9 px-3.5 rounded-full btn-harmony-secondary text-[12.5px] font-semibold flex items-center gap-1.5 cursor-pointer"
+            title="返回推荐首页"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>返回推荐</span>
+          </button>
+
           <button
             onClick={() => setActiveNav('local_playlists')}
-            className={`h-9 px-5 rounded-full text-[13px] font-semibold transition-all cursor-pointer ${
-              isLocal
-                ? 'bg-[#24262A] !text-white shadow-xs'
-                : 'bg-white/[0.06] border border-white/[0.08] text-white/70 hover:text-white'
+            className={`h-9 px-5 rounded-full text-[13px] font-semibold cursor-pointer ${
+              isLocal ? 'btn-harmony-active' : 'btn-harmony-secondary'
             }`}
           >
-            自建歌单 ({playlists.filter((p) => p.kind === 'local').length})
+            精选与自建歌单 ({playlists.filter((p) => p.kind === 'local').length})
           </button>
           <button
             onClick={() => setActiveNav('imported_playlists')}
-            className={`h-9 px-5 rounded-full text-[13px] font-semibold transition-all cursor-pointer ${
-              !isLocal
-                ? 'bg-[#24262A] !text-white shadow-xs'
-                : 'bg-white/[0.06] border border-white/[0.08] text-white/70 hover:text-white'
+            className={`h-9 px-5 rounded-full text-[13px] font-semibold cursor-pointer ${
+              !isLocal ? 'btn-harmony-active' : 'btn-harmony-secondary'
             }`}
           >
             云端同步歌单 ({playlists.filter((p) => p.kind === 'imported').length})
@@ -64,8 +69,7 @@ export const PlaylistsView: React.FC = () => {
                 '跨音源无损精选集'
               )
             }
-            style={{ backgroundColor: 'var(--theme-accent)' }}
-            className="h-9 px-4 rounded-full text-[12.5px] font-semibold !text-white flex items-center gap-1.5 shadow-xs cursor-pointer transition-transform active:scale-95"
+            className="h-9 px-4 rounded-full btn-harmony-primary text-[12.5px] font-semibold flex items-center gap-1.5 cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>新建歌单</span>
@@ -77,7 +81,7 @@ export const PlaylistsView: React.FC = () => {
                 ? triggerHuaweiSync()
                 : setHuaweiAuthModalOpen(true)
             }
-            className="h-9 px-4 rounded-full bg-white/[0.06] hover:bg-white/[0.12] border border-white/[0.08] text-[12.5px] font-medium text-white flex items-center gap-1.5 cursor-pointer transition-colors"
+            className="h-9 px-4 rounded-full btn-harmony-secondary text-[12.5px] font-semibold flex items-center gap-1.5 cursor-pointer"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             <span>
@@ -88,23 +92,23 @@ export const PlaylistsView: React.FC = () => {
       </div>
 
       {/* Horizontal Playlist Strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 gap-3.5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3.5">
         {visiblePlaylists.map((pl) => {
           const isSelected = activePl?.id === pl.id;
           return (
             <div
               key={pl.id}
               onClick={() => setSelectedPlaylistId(pl.id)}
-              className={`group p-2.5 rounded-[18px] flex items-center gap-3 transition-all cursor-pointer ${
+              className={`group p-2.5 rounded-[18px] flex items-center gap-3 transition-all duration-200 cursor-pointer ${
                 isSelected
-                  ? 'surface-bento ring-2 ring-[#FA2D48]'
-                  : 'surface-bento hover:bg-white/[0.07]'
+                  ? 'surface-bento ring-2 ring-[#FA2D48] shadow-md -translate-y-0.5'
+                  : 'surface-bento hover:-translate-y-0.5'
               }`}
             >
               <img
                 src={pl.coverUrl}
                 alt={pl.name}
-                className="w-12 h-12 rounded-[12px] object-cover shrink-0 shadow-xs"
+                className="w-12 h-12 rounded-[12px] object-cover shrink-0 shadow-xs ring-1 ring-black/[0.06]"
               />
               <div className="min-w-0 flex-1">
                 <div className="text-[13px] font-semibold text-white truncate">
@@ -124,7 +128,7 @@ export const PlaylistsView: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-[290px_1fr] gap-7 items-start pt-1">
           {/* Left Master Panel */}
           <div className="p-6 rounded-[24px] surface-bento flex flex-col items-center lg:items-start text-center lg:text-left space-y-4">
-            <div className="w-48 h-48 lg:w-full lg:aspect-square rounded-[20px] overflow-hidden shadow-[0_18px_42px_rgba(0,0,0,0.22)] ring-1 ring-white/15 relative group">
+            <div className="w-48 h-48 lg:w-full lg:aspect-square rounded-[20px] overflow-hidden shadow-[0_18px_42px_rgba(0,0,0,0.18)] ring-1 ring-black/[0.08] relative group">
               <img
                 src={activePl.coverUrl}
                 alt={activePl.name}
@@ -157,8 +161,7 @@ export const PlaylistsView: React.FC = () => {
                     playTrack(activeTracks[0]);
                   }
                 }}
-                style={{ backgroundColor: 'var(--theme-accent)' }}
-                className="flex-1 h-10 rounded-full text-[13px] font-semibold !text-white flex items-center justify-center gap-2 shadow-md cursor-pointer transition-transform active:scale-95"
+                className="flex-1 h-10 rounded-full btn-harmony-primary text-[13px] font-semibold flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Play className="w-4 h-4 fill-current" />
                 <span>播放全部</span>
@@ -173,7 +176,7 @@ export const PlaylistsView: React.FC = () => {
                     playTrack(rand);
                   }
                 }}
-                className="h-10 px-4 rounded-full bg-white/[0.07] hover:bg-white/[0.14] border border-white/[0.08] text-[13px] font-medium text-white flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                className="h-10 px-4 rounded-full btn-harmony-secondary text-[13px] font-medium flex items-center justify-center gap-1.5 cursor-pointer"
                 title="随机播放"
               >
                 <Shuffle className="w-4 h-4" />

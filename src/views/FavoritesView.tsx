@@ -114,6 +114,7 @@ export const FavoritesView: React.FC = () => {
   const triggerHuaweiSync = usePlayerStore((s) => s.triggerHuaweiSync);
   const setHuaweiAuthModalOpen = usePlayerStore((s) => s.setHuaweiAuthModalOpen);
   const searchHuaweiCatalog = usePlayerStore((s) => s.searchHuaweiCatalog);
+  const openCuratedPlaylist = usePlayerStore((s) => s.openCuratedPlaylist);
 
   const [activeCategory, setActiveCategory] = useState<string>('featured');
   const [artistFilter, setArtistFilter] = useState<string | null>(null);
@@ -144,22 +145,46 @@ export const FavoritesView: React.FC = () => {
     playTrack(target);
   };
 
+  const buildTrackSlice = (offset: number, count: number): string[] => {
+    if (displayTracks.length === 0) return [];
+    const rotated = [
+      ...displayTracks.slice(offset % displayTracks.length),
+      ...displayTracks.slice(0, offset % displayTracks.length),
+    ];
+    return rotated.slice(0, Math.min(count, rotated.length)).map((t) => t.id);
+  };
+
   return (
     <div className="space-y-6">
-      {/* Row 1: 4 Signature HarmonyOS NEXT Vertical Feature Cards (1:1 Restoration) */}
+      {/* Row 1: 4 Signature HarmonyOS NEXT Vertical Feature Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: 现在就听 (Music FM Deep Twilight Navy Card) */}
         <div
-          onClick={() => playRandomOrIndex(0)}
+          onClick={() =>
+            openCuratedPlaylist({
+              id: 'pl_hero_listen_now',
+              name: '现在就听 · Music FM 私人电台',
+              description: '根据您的华为音乐无损听歌品味实时编排的私人无损电台列表',
+              coverUrl:
+                displayTracks[0]?.coverUrl ||
+                'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=500&auto=format&fit=crop&q=80',
+              trackIds: buildTrackSlice(0, 25),
+            })
+          }
           style={{
             background:
               'linear-gradient(180deg, #1E2C4F 0%, #172340 62%, #111A30 100%)',
           }}
-          className="relative h-[264px] xl:h-[280px] rounded-[22px] p-5 flex flex-col justify-between overflow-hidden shadow-[0_14px_34px_rgba(17,26,48,0.18)] group cursor-pointer select-none"
+          className="relative h-[264px] xl:h-[280px] rounded-[22px] p-5 flex flex-col justify-between overflow-hidden shadow-[0_14px_34px_rgba(17,26,48,0.2)] ring-1 ring-white/10 group cursor-pointer select-none transition-transform duration-300 hover:-translate-y-0.5"
         >
-          <div className="relative z-10 flex items-center gap-1.5 !text-white/90 text-[11.5px] font-semibold">
-            <Radio className="w-3.5 h-3.5 !text-white/90" />
-            <span>Music FM</span>
+          <div className="relative z-10 flex items-center justify-between !text-white/90 text-[11.5px] font-semibold">
+            <span className="flex items-center gap-1.5">
+              <Radio className="w-3.5 h-3.5 !text-white/90" />
+              <span>Music FM</span>
+            </span>
+            <span className="text-[10.5px] !text-white/55 opacity-0 group-hover:opacity-100 transition-opacity">
+              查看列表 ›
+            </span>
           </div>
 
           <div className="relative z-10 flex items-center justify-center my-auto py-2">
@@ -174,7 +199,7 @@ export const FavoritesView: React.FC = () => {
               />
             </div>
 
-            <div className="relative z-10 w-28 h-28 xl:w-32 xl:h-32 rounded-[14px] overflow-hidden shadow-[0_16px_36px_rgba(0,0,0,0.55)] ring-1 ring-white/20 group-hover:scale-105 transition-transform duration-300">
+            <div className="relative z-10 w-28 h-28 xl:w-32 xl:h-32 rounded-[14px] overflow-hidden shadow-[0_16px_36px_rgba(0,0,0,0.55)] ring-1 ring-white/25 group-hover:scale-105 transition-transform duration-300">
               <img
                 src={
                   displayTracks[0]?.coverUrl ||
@@ -209,8 +234,13 @@ export const FavoritesView: React.FC = () => {
               </div>
             </div>
             <button
-              aria-label="播放现在就听"
-              className="w-8 h-8 rounded-full bg-white text-[#172340] flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform"
+              aria-label="立即播放现在就听"
+              title="立即播放"
+              onClick={(e) => {
+                e.stopPropagation();
+                playRandomOrIndex(0);
+              }}
+              className="w-9 h-9 rounded-full btn-play-fab text-[#172340] flex items-center justify-center shrink-0 cursor-pointer"
             >
               <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
             </button>
@@ -219,8 +249,18 @@ export const FavoritesView: React.FC = () => {
 
         {/* Card 2: 每日30首 (Dual-Split Atmospheric Calendar Card) */}
         <div
-          onClick={() => playRandomOrIndex(1)}
-          className="relative h-[264px] xl:h-[280px] rounded-[22px] p-5 flex flex-col justify-between overflow-hidden shadow-[0_14px_34px_rgba(74,107,136,0.18)] group cursor-pointer select-none"
+          onClick={() =>
+            openCuratedPlaylist({
+              id: 'pl_hero_daily_30',
+              name: '每日 30 首 · 专属定制歌单',
+              description: '每日清晨为您更新 30 首跨音源无损精选单曲',
+              coverUrl:
+                displayTracks[1]?.coverUrl ||
+                'https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=500&auto=format&fit=crop&q=80',
+              trackIds: buildTrackSlice(1, 30),
+            })
+          }
+          className="relative h-[264px] xl:h-[280px] rounded-[22px] p-5 flex flex-col justify-between overflow-hidden shadow-[0_14px_34px_rgba(74,107,136,0.2)] ring-1 ring-white/15 group cursor-pointer select-none transition-transform duration-300 hover:-translate-y-0.5"
         >
           <div className="absolute inset-0 grid grid-cols-2 pointer-events-none">
             <div
@@ -251,7 +291,11 @@ export const FavoritesView: React.FC = () => {
             </div>
           </div>
 
-          <div className="relative z-10" />
+          <div className="relative z-10 flex items-center justify-end">
+            <span className="text-[10.5px] font-semibold !text-white/65 opacity-0 group-hover:opacity-100 transition-opacity">
+              查看 30 首 ›
+            </span>
+          </div>
 
           <div className="relative z-10 flex flex-col items-center justify-center my-auto">
             <span className="text-[15px] font-medium !text-white/90 tracking-wide">
@@ -274,8 +318,13 @@ export const FavoritesView: React.FC = () => {
               </div>
             </div>
             <button
-              aria-label="播放每日30首"
-              className="w-8 h-8 rounded-full bg-white text-[#44596D] flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform"
+              aria-label="立即播放每日30首"
+              title="立即播放"
+              onClick={(e) => {
+                e.stopPropagation();
+                playRandomOrIndex(1);
+              }}
+              className="w-9 h-9 rounded-full btn-play-fab text-[#44596D] flex items-center justify-center shrink-0 cursor-pointer"
             >
               <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
             </button>
@@ -284,16 +333,31 @@ export const FavoritesView: React.FC = () => {
 
         {/* Card 3: 新歌推荐 (Plum Burgundy + Transparent CD Jewel Case) */}
         <div
-          onClick={() => playRandomOrIndex(2)}
+          onClick={() =>
+            openCuratedPlaylist({
+              id: 'pl_hero_new_releases',
+              name: '新歌推荐 · Hi-Res 首发臻选',
+              description: '华语与全球最新上架 SQ / Hi-Res 无损新歌合集',
+              coverUrl:
+                displayTracks[2]?.coverUrl ||
+                'https://images.unsplash.com/photo-1557672172-298e090bd0f1?w=500&auto=format&fit=crop&q=80',
+              trackIds: buildTrackSlice(2, 24),
+            })
+          }
           style={{
             background:
               'linear-gradient(180deg, #723B5D 0%, #5A2B48 65%, #461F37 100%)',
           }}
-          className="relative h-[264px] xl:h-[280px] rounded-[22px] p-5 flex flex-col justify-between overflow-hidden shadow-[0_14px_34px_rgba(90,43,72,0.18)] group cursor-pointer select-none"
+          className="relative h-[264px] xl:h-[280px] rounded-[22px] p-5 flex flex-col justify-between overflow-hidden shadow-[0_14px_34px_rgba(90,43,72,0.2)] ring-1 ring-white/10 group cursor-pointer select-none transition-transform duration-300 hover:-translate-y-0.5"
         >
-          <div className="relative z-10 flex items-center gap-1.5 !text-white/90 text-[11.5px] font-bold tracking-wider">
-            <Disc3 className="w-3.5 h-3.5 !text-white/90" />
-            <span>NEW</span>
+          <div className="relative z-10 flex items-center justify-between !text-white/90 text-[11.5px] font-bold tracking-wider">
+            <span className="flex items-center gap-1.5">
+              <Disc3 className="w-3.5 h-3.5 !text-white/90" />
+              <span>NEW</span>
+            </span>
+            <span className="text-[10.5px] font-semibold !text-white/60 opacity-0 group-hover:opacity-100 transition-opacity">
+              查看列表 ›
+            </span>
           </div>
 
           <div className="relative z-10 flex items-center justify-center my-auto py-1">
@@ -327,8 +391,13 @@ export const FavoritesView: React.FC = () => {
               </div>
             </div>
             <button
-              aria-label="播放新歌推荐"
-              className="w-8 h-8 rounded-full bg-white text-[#5A2B48] flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform"
+              aria-label="立即播放新歌推荐"
+              title="立即播放"
+              onClick={(e) => {
+                e.stopPropagation();
+                playRandomOrIndex(2);
+              }}
+              className="w-9 h-9 rounded-full btn-play-fab text-[#5A2B48] flex items-center justify-center shrink-0 cursor-pointer"
             >
               <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
             </button>
@@ -337,12 +406,22 @@ export const FavoritesView: React.FC = () => {
 
         {/* Card 4: 心动模式 (Warm Canyon Amber & Crimson Silk Waves) */}
         <div
-          onClick={() => playRandomOrIndex(3)}
+          onClick={() =>
+            openCuratedPlaylist({
+              id: 'pl_hero_heartbeat_radar',
+              name: '心动模式 · Hi-Res 心动雷达',
+              description: '从您红心收藏的旋律基因出发，发现熟悉的惊喜与共鸣',
+              coverUrl:
+                displayTracks[3]?.coverUrl ||
+                'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=600&auto=format&fit=crop&q=80',
+              trackIds: buildTrackSlice(3, 25),
+            })
+          }
           style={{
             background:
               'linear-gradient(155deg, #E0532C 0%, #B32325 52%, #6B1017 100%)',
           }}
-          className="relative h-[264px] xl:h-[280px] rounded-[22px] p-5 flex flex-col justify-between overflow-hidden shadow-[0_14px_34px_rgba(179,35,37,0.18)] group cursor-pointer select-none"
+          className="relative h-[264px] xl:h-[280px] rounded-[22px] p-5 flex flex-col justify-between overflow-hidden shadow-[0_14px_34px_rgba(179,35,37,0.2)] ring-1 ring-white/10 group cursor-pointer select-none transition-transform duration-300 hover:-translate-y-0.5"
         >
           <img
             src="https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=600&auto=format&fit=crop&q=80"
@@ -351,9 +430,14 @@ export const FavoritesView: React.FC = () => {
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-transparent pointer-events-none" />
 
-          <div className="relative z-10 flex items-center gap-1.5 !text-white/90 text-[11.5px] font-semibold">
-            <Radio className="w-3.5 h-3.5 !text-white/90" />
-            <span>Hi-Res 心动雷达</span>
+          <div className="relative z-10 flex items-center justify-between !text-white/90 text-[11.5px] font-semibold">
+            <span className="flex items-center gap-1.5">
+              <Radio className="w-3.5 h-3.5 !text-white/90" />
+              <span>Hi-Res 心动雷达</span>
+            </span>
+            <span className="text-[10.5px] !text-white/65 opacity-0 group-hover:opacity-100 transition-opacity">
+              查看列表 ›
+            </span>
           </div>
 
           <div className="relative z-10" />
@@ -370,8 +454,13 @@ export const FavoritesView: React.FC = () => {
               </div>
             </div>
             <button
-              aria-label="播放心动模式"
-              className="w-8 h-8 rounded-full bg-white text-[#8E1B20] flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform"
+              aria-label="立即播放心动模式"
+              title="立即播放"
+              onClick={(e) => {
+                e.stopPropagation();
+                playRandomOrIndex(3);
+              }}
+              className="w-9 h-9 rounded-full btn-play-fab text-[#8E1B20] flex items-center justify-center shrink-0 cursor-pointer"
             >
               <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
             </button>
@@ -380,7 +469,7 @@ export const FavoritesView: React.FC = () => {
       </div>
 
       {/* Row 2: 5 Centered HarmonyOS Category Filter Pills (精选 / 歌手 / AI 音乐 / 歌单 / 分类) */}
-      <div className="flex items-center justify-center gap-3 sm:gap-4 flex-wrap py-1 select-none">
+      <div className="flex items-center justify-center gap-2.5 sm:gap-3.5 flex-wrap py-1 select-none">
         {HARMONY_CATEGORY_PILLS.map((pill) => {
           const Icon = pill.icon;
           const isSelected = activeCategory === pill.id;
@@ -394,10 +483,8 @@ export const FavoritesView: React.FC = () => {
                   setActiveNav('local_playlists');
                 }
               }}
-              className={`h-9 px-6 rounded-full text-[13px] font-medium flex items-center gap-2 transition-all cursor-pointer ${
-                isSelected
-                  ? 'bg-[#24262A] !text-white shadow-sm'
-                  : 'surface-bento hover:bg-white/[0.1] text-white/80'
+              className={`h-9 px-5 sm:px-6 rounded-full text-[13px] font-semibold flex items-center gap-2 cursor-pointer ${
+                isSelected ? 'btn-harmony-active' : 'btn-harmony-secondary'
               }`}
             >
               <Icon
@@ -454,9 +541,7 @@ export const FavoritesView: React.FC = () => {
         <div className="p-5 rounded-[24px] surface-bento flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <span className="px-2.5 py-0.5 rounded-full bg-[#FA2D48]/15 text-[#FA2D48] text-[11px] font-bold">
-                HarmonyOS AI 空间声学
-              </span>
+              <span className="badge-lossless">HarmonyOS AI 空间声学</span>
               <h3 className="text-[16px] font-bold text-white">
                 Audio Vivid 菁彩声三维声场与 AI 智能推荐
               </h3>
@@ -467,8 +552,7 @@ export const FavoritesView: React.FC = () => {
           </div>
           <button
             onClick={() => playRandomOrIndex(0)}
-            style={{ backgroundColor: 'var(--theme-accent)' }}
-            className="h-9 px-5 rounded-full text-[12.5px] font-semibold !text-white shrink-0 cursor-pointer"
+            className="h-9 px-5 rounded-full btn-harmony-primary text-[12.5px] font-semibold shrink-0 cursor-pointer"
           >
             开启 AI 空间漫游
           </button>
@@ -486,7 +570,7 @@ export const FavoritesView: React.FC = () => {
                   void searchHuaweiCatalog(tag);
                   setActiveNav('search');
                 }}
-                className="px-4 py-2 rounded-full bg-white/[0.05] hover:bg-white/[0.12] border border-white/[0.07] text-[12.5px] font-medium text-white cursor-pointer transition-colors"
+                className="px-4 py-2 rounded-full btn-harmony-secondary text-[12.5px] font-medium cursor-pointer"
               >
                 {tag}
               </button>
@@ -495,7 +579,7 @@ export const FavoritesView: React.FC = () => {
         </div>
       )}
 
-      {/* Row 3: Hi Raven, 为你推荐 (5-Column Square Artwork Grid with Play Count Badges) */}
+      {/* Row 3: Hi Raven, 为你推荐 (5-Column Square Artwork Grid -> Click Cover to Open Playlist Detail) */}
       <div className="space-y-3.5 select-none">
         <div className="flex items-center justify-between">
           <button
@@ -509,15 +593,15 @@ export const FavoritesView: React.FC = () => {
           {huaweiSource.loggedIn ? (
             <button
               onClick={triggerHuaweiSync}
-              className="h-8 px-3.5 rounded-full surface-bento hover:bg-white/[0.1] text-[12px] font-medium text-white/80 flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="h-8.5 px-4 rounded-full btn-harmony-secondary text-[12px] font-semibold flex items-center gap-1.5 cursor-pointer"
             >
-              <RefreshCw className="w-3.5 h-3.5" />
+              <RefreshCw className="w-3.5 h-3.5 text-white/65" />
               <span>同步华为云端资产</span>
             </button>
           ) : (
             <button
               onClick={() => setHuaweiAuthModalOpen(true)}
-              className="h-8 px-3.5 rounded-full surface-bento hover:bg-white/[0.12] text-[12px] font-medium text-white flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="h-8.5 px-4 rounded-full btn-harmony-secondary text-[12px] font-semibold flex items-center gap-1.5 cursor-pointer"
             >
               <QrCode className="w-3.5 h-3.5 text-[#FA2D48]" />
               <span>扫码同步华为「我喜欢」</span>
@@ -529,23 +613,47 @@ export const FavoritesView: React.FC = () => {
           {HI_RAVEN_CARDS.map((card, idx) => (
             <div
               key={card.id}
-              onClick={() => playRandomOrIndex(idx)}
-              className="group cursor-pointer space-y-2"
+              onClick={() =>
+                openCuratedPlaylist({
+                  id: `pl_${card.id}`,
+                  name: card.title,
+                  description: `Hi Raven 专属氛围推荐歌单 · 累计播放 ${card.playCount}`,
+                  coverUrl: card.coverUrl,
+                  trackIds: buildTrackSlice(idx * 3, 18),
+                })
+              }
+              className="group cursor-pointer space-y-2.5"
             >
-              <div className="aspect-square rounded-[18px] overflow-hidden relative bg-white/5 ring-1 ring-black/[0.05] shadow-xs">
+              <div className="aspect-square rounded-[20px] overflow-hidden relative bg-white/5 ring-1 ring-black/[0.06] shadow-[0_8px_22px_-4px_rgba(15,23,42,0.08)] transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-[0_16px_32px_-6px_rgba(15,23,42,0.16)]">
                 <img
                   src={card.coverUrl}
                   alt={card.title}
                   loading="lazy"
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                 />
-                {/* Bottom-Left Frosted Play Count Pill (Exact match to screenshot) */}
-                <div className="absolute bottom-2 left-2 px-2 py-0.5 rounded-full bg-white/80 backdrop-blur-md text-[#18181A] text-[10px] font-semibold flex items-center gap-1 shadow-xs">
+                <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-transparent to-transparent opacity-60 group-hover:opacity-80 transition-opacity pointer-events-none" />
+
+                {/* Bottom-Left Frosted Play Count Pill */}
+                <div className="absolute bottom-2.5 left-2.5 px-2.5 py-0.5 rounded-full bg-white/88 backdrop-blur-md text-[#18181A] text-[10.5px] font-semibold flex items-center gap-1 shadow-sm">
                   <Play className="w-2.5 h-2.5 fill-current" />
                   <span>{card.playCount}</span>
                 </div>
+
+                {/* Bottom-Right Quick Play FAB (Stops propagation so clicking play starts music immediately, while clicking cover opens playlist) */}
+                <button
+                  type="button"
+                  title="直接播放此歌单"
+                  aria-label={`播放 ${card.title}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    playRandomOrIndex(idx * 3);
+                  }}
+                  className="absolute bottom-2.5 right-2.5 w-8.5 h-8.5 rounded-full btn-play-fab text-[#18181A] flex items-center justify-center opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-200 cursor-pointer"
+                >
+                  <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+                </button>
               </div>
-              <p className="text-[12.5px] text-white/85 font-medium leading-snug line-clamp-2 px-0.5">
+              <p className="text-[12.5px] text-white/85 group-hover:text-[#FA2D48] transition-colors font-semibold leading-snug line-clamp-2 px-0.5">
                 {card.title}
               </p>
             </div>
@@ -566,8 +674,7 @@ export const FavoritesView: React.FC = () => {
           </div>
           <button
             onClick={() => playRandomOrIndex(0)}
-            style={{ backgroundColor: 'var(--theme-accent)' }}
-            className="h-8 px-4 rounded-full text-[12px] font-semibold !text-white flex items-center gap-1.5 shadow-xs cursor-pointer"
+            className="h-8.5 px-4 rounded-full btn-harmony-primary text-[12px] font-semibold flex items-center gap-1.5 cursor-pointer"
           >
             <Play className="w-3 h-3 fill-current" />
             <span>播放全部</span>

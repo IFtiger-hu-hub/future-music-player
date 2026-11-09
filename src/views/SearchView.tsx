@@ -53,8 +53,7 @@ export const SearchView: React.FC = () => {
           <button
             type="submit"
             disabled={isSearchingCloud || !searchQuery.trim()}
-            style={{ backgroundColor: 'var(--theme-accent)' }}
-            className="h-8 px-4 rounded-full disabled:opacity-40 text-[12px] font-semibold !text-white shrink-0 cursor-pointer transition-transform active:scale-95"
+            className="h-8.5 px-4 rounded-full btn-harmony-primary disabled:opacity-40 text-[12px] font-semibold shrink-0 cursor-pointer"
           >
             {isSearchingCloud ? '搜索中...' : '云端搜索'}
           </button>
@@ -73,7 +72,7 @@ export const SearchView: React.FC = () => {
                 setSearchQuery(kw);
                 void handleCloudSearch(undefined, kw);
               }}
-              className="px-3.5 py-1 rounded-full bg-white/[0.05] hover:bg-white/[0.11] border border-white/[0.07] text-[12px] text-white/75 hover:text-white transition-colors cursor-pointer"
+              className="px-3.5 py-1 rounded-full btn-harmony-secondary text-[12px] font-medium cursor-pointer"
             >
               {kw}
             </button>

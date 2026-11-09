@@ -222,15 +222,8 @@ export const TrackTable: React.FC<TrackTableProps> = ({ tracks }) => {
                         playTrack(track, b.source);
                       }}
                       title={`使用 ${SOURCE_LABELS[b.source]} 播放 (${b.formatLabel})`}
-                      style={
-                        isActiveSource
-                          ? { backgroundColor: 'var(--theme-accent)' }
-                          : undefined
-                      }
-                      className={`px-2.5 py-0.5 rounded-full text-[11px] font-medium transition-colors cursor-pointer ${
-                        isActiveSource
-                          ? '!text-white shadow-xs'
-                          : 'bg-white/[0.06] text-white/60 hover:bg-white/[0.12] hover:text-white border border-white/[0.06]'
+                      className={`source-chip cursor-pointer ${
+                        isActiveSource ? 'source-chip-active' : ''
                       }`}
                     >
                       {SOURCE_LABELS[b.source]}

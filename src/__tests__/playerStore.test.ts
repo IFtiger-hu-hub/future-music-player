@@ -188,6 +188,23 @@ describe('Future Music Player Multi-Source Store & Huawei Sync Engine', () => {
     );
     expect(activeAt1030.length).toBe(1);
   });
+
+  it('opens a curated playlist detail page when clicking a hero or recommendation cover', () => {
+    usePlayerStore.getState().openCuratedPlaylist({
+      id: 'pl_hero_daily_30',
+      name: '每日 30 首 · 专属定制歌单',
+      description: '每日清晨为您更新 30 首跨音源无损精选单曲',
+      coverUrl: 'https://example.com/cover.jpg',
+      trackIds: ['trk_wanfeng', 'trk_fushishan'],
+    });
+
+    const state = usePlayerStore.getState();
+    expect(state.activeNav).toBe('local_playlists');
+    expect(state.selectedPlaylistId).toBe('pl_hero_daily_30');
+    const created = state.playlists.find((p) => p.id === 'pl_hero_daily_30');
+    expect(created).toBeDefined();
+    expect(created?.trackIds).toEqual(['trk_wanfeng', 'trk_fushishan']);
+  });
 });
 
 

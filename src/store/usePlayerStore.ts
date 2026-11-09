@@ -171,6 +171,14 @@ export interface PlayerState {
   revokeMergeDecision: (mergeId: string) => void;
   createLocalPlaylist: (name: string, description: string) => void;
   addTrackToLocalPlaylist: (playlistId: string, trackId: string) => void;
+  openCuratedPlaylist: (spec: {
+    id: string;
+    name: string;
+    description: string;
+    coverUrl: string;
+    trackIds: string[];
+    kind?: 'local' | 'imported';
+  }) => void;
 
   resolveTrackStream: (
     track: CanonicalTrack,
@@ -426,6 +434,58 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         trackIds: pl.trackIds,
       });
     }
+  },
+
+  openCuratedPlaylist: (spec) => {
+    const kind = spec.kind || 'local';
+    const targetNav: NavSection =
+      kind === 'imported' ? 'imported_playlists' : 'local_playlists';
+
+    set((state) => {
+      const existing = state.playlists.find((p) => p.id === spec.id);
+      const fallbackTrackIds =
+        spec.trackIds.length > 0
+          ? spec.trackIds
+          : state.tracks.slice(0, 30).map((t) => t.id);
+
+      const nextPlaylist: PlaylistItem = existing
+        ? {
+            ...existing,
+            name: spec.name || existing.name,
+            description: spec.description || existing.description,
+            coverUrl: spec.coverUrl || existing.coverUrl,
+            trackIds:
+              existing.trackIds.length > 0 ? existing.trackIds : fallbackTrackIds,
+            trackCount:
+              existing.trackIds.length > 0
+                ? existing.trackIds.length
+                : fallbackTrackIds.length,
+          }
+        : {
+            id: spec.id,
+            kind,
+            source: kind === 'imported' ? 'huawei' : 'local',
+            name: spec.name,
+            description: spec.description,
+            coverUrl:
+              spec.coverUrl ||
+              state.tracks[0]?.coverUrl ||
+              INITIAL_TRACKS[0].coverUrl,
+            trackCount: fallbackTrackIds.length,
+            updatedAt: '精选推荐',
+            trackIds: fallbackTrackIds,
+          };
+
+      const nextPlaylists = existing
+        ? state.playlists.map((p) => (p.id === spec.id ? nextPlaylist : p))
+        : [nextPlaylist, ...state.playlists];
+
+      return {
+        playlists: nextPlaylists,
+        selectedPlaylistId: spec.id,
+        activeNav: targetNav,
+      };
+    });
   },
 
   resolveTrackStream: async (track, source, autoPlay = true) => {
