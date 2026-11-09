@@ -1,0 +1,172 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-sans: 'Inter', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+
+    /* Default Theme Variables (Apple Crimson Dark) */
+    --theme-base: #121214;
+    --theme-surface: #161618;
+    --theme-elevated: #1C1C1F;
+    --theme-text: #F5F5F7;
+    --theme-secondary: #B4B4BC;
+    --theme-muted: #787882;
+    --theme-accent: #FA2D48;
+    --theme-border: rgba(255, 255, 255, 0.08);
+    --theme-subtle: rgba(255, 255, 255, 0.06);
+    --theme-hover: rgba(255, 255, 255, 0.12);
+    --font-scale: 1;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--theme-base);
+    color: var(--theme-text);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    transition: background-color 0.25s ease, color 0.25s ease;
+  }
+
+  .font-mono-tabular {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Theme-Aware Surface & Typography Adaptation for Light & Custom Palettes */
+.app-shell-root {
+  background-color: var(--theme-base);
+  color: var(--theme-text);
+  zoom: var(--font-scale, 1);
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+.theme-sidebar {
+  background-color: color-mix(in srgb, var(--theme-base) 88%, transparent);
+  border-color: var(--theme-border);
+}
+
+.theme-topbar {
+  background-color: color-mix(in srgb, var(--theme-base) 82%, transparent);
+  border-color: var(--theme-border);
+}
+
+.theme-stage {
+  background-color: var(--theme-surface);
+}
+
+.theme-playerbar {
+  background-color: color-mix(in srgb, var(--theme-elevated) 86%, transparent);
+  border-color: var(--theme-border);
+}
+
+.theme-modal {
+  background-color: color-mix(in srgb, var(--theme-elevated) 96%, transparent);
+  border-color: var(--theme-border);
+}
+
+.theme-accent-bg {
+  background-color: var(--theme-accent) !important;
+  color: #FFFFFF !important;
+}
+
+.theme-accent-text {
+  color: var(--theme-accent) !important;
+}
+
+/* Automatic high-contrast adaptation when a Light theme (晨光/晴海/鼠尾草/暖砂/蔷薇/冰川) is active */
+html[data-theme-mode="light"] .app-shell-root:not(.ambient-stage-dark) {
+  color: var(--theme-text);
+}
+
+html[data-theme-mode="light"] .theme-main-area .text-white,
+html[data-theme-mode="light"] .theme-main-area .text-white\/95,
+html[data-theme-mode="light"] .theme-main-area .text-white\/92,
+html[data-theme-mode="light"] .theme-main-area .text-white\/90,
+html[data-theme-mode="light"] .theme-main-area .text-white\/85,
+html[data-theme-mode="light"] .theme-main-area .text-white\/80 {
+  color: var(--theme-text) !important;
+}
+
+html[data-theme-mode="light"] .theme-main-area .text-white\/75,
+html[data-theme-mode="light"] .theme-main-area .text-white\/70,
+html[data-theme-mode="light"] .theme-main-area .text-white\/60,
+html[data-theme-mode="light"] .theme-main-area .text-white\/55,
+html[data-theme-mode="light"] .theme-main-area .text-white\/50 {
+  color: var(--theme-secondary) !important;
+}
+
+html[data-theme-mode="light"] .theme-main-area .text-white\/45,
+html[data-theme-mode="light"] .theme-main-area .text-white\/40,
+html[data-theme-mode="light"] .theme-main-area .text-white\/35,
+html[data-theme-mode="light"] .theme-main-area .text-white\/30 {
+  color: var(--theme-muted) !important;
+}
+
+html[data-theme-mode="light"] .theme-main-area .bg-white\/\[0\.03\],
+html[data-theme-mode="light"] .theme-main-area .bg-white\/\[0\.04\],
+html[data-theme-mode="light"] .theme-main-area .bg-white\/\[0\.045\],
+html[data-theme-mode="light"] .theme-main-area .bg-white\/\[0\.05\],
+html[data-theme-mode="light"] .theme-main-area .bg-white\/\[0\.06\],
+html[data-theme-mode="light"] .theme-main-area .bg-white\/\[0\.07\],
+html[data-theme-mode="light"] .theme-main-area .bg-white\/\[0\.08\],
+html[data-theme-mode="light"] .theme-main-area .bg-black\/25,
+html[data-theme-mode="light"] .theme-main-area .bg-black\/40 {
+  background-color: color-mix(in srgb, var(--theme-text) 6%, transparent) !important;
+}
+
+html[data-theme-mode="light"] .theme-main-area .bg-white\/\[0\.09\],
+html[data-theme-mode="light"] .theme-main-area .bg-white\/\[0\.11\],
+html[data-theme-mode="light"] .theme-main-area .bg-white\/\[0\.12\],
+html[data-theme-mode="light"] .theme-main-area .bg-white\/\[0\.14\],
+html[data-theme-mode="light"] .theme-main-area .bg-white\/\[0\.15\],
+html[data-theme-mode="light"] .theme-main-area .bg-white\/20 {
+  background-color: color-mix(in srgb, var(--theme-text) 12%, transparent) !important;
+}
+
+html[data-theme-mode="light"] .theme-main-area .border-white\/\[0\.05\],
+html[data-theme-mode="light"] .theme-main-area .border-white\/\[0\.06\],
+html[data-theme-mode="light"] .theme-main-area .border-white\/\[0\.07\],
+html[data-theme-mode="light"] .theme-main-area .border-white\/\[0\.08\],
+html[data-theme-mode="light"] .theme-main-area .border-white\/\[0\.1\],
+html[data-theme-mode="light"] .theme-main-area .border-white\/\[0\.12\],
+html[data-theme-mode="light"] .theme-main-area .border-white\/15 {
+  border-color: color-mix(in srgb, var(--theme-text) 11%, transparent) !important;
+}
+
+html[data-theme-mode="light"] .theme-main-area .placeholder-white\/35::placeholder,
+html[data-theme-mode="light"] .theme-main-area .placeholder-white\/30::placeholder {
+  color: var(--theme-muted) !important;
+}
+
+/* Custom ultra-thin studio scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--theme-text) 16%, transparent);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--theme-text) 30%, transparent);
+}
+
+@keyframes slow-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-vinyl {
+  animation: slow-spin 26s linear infinite;
+}
