@@ -88,8 +88,9 @@ export function App() {
     }
   }, [setThemeId]);
 
-  // Auto-discover persisted Huawei Music session on startup
+  // Hydrate persisted library from SQLite (~/.config/future-music/library.db) & discover Huawei session
   useEffect(() => {
+    void usePlayerStore.getState().hydrateLibraryFromSqlite();
     musicGateway.fetchHuaweiStatus().then((status) => {
       const uid = status?.snsUserID || status?.snsUserId;
       if (status?.loggedIn && uid) {

@@ -1,6 +1,7 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use rusqlite::{params, Connection, Result as SqlResult};
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 use crate::matcher::{clean_title, detect_version, fold, Version};
@@ -59,11 +60,26 @@ impl LibraryDb {
     }
 
     pub fn open_path(path: &Path) -> SqlResult<Self> {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
         let conn = Connection::open(path)?;
         let _ = conn.pragma_update(None, "journal_mode", "WAL");
-        let _ = conn.pragma_update(None, "synchronous", "FULL");
+        let _ = conn.pragma_update(None, "synchronous", "NORMAL");
+        let _ = conn.pragma_update(None, "cache_size", -4000); // Limit SQLite page cache to 4MB
         let _ = conn.busy_timeout(std::time::Duration::from_millis(5000));
         Self::init(conn)
+    }
+
+    pub fn default_db_path() -> PathBuf {
+        let home = std::env::var("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("/tmp"));
+        home.join(".config").join("future-music").join("library.db")
+    }
+
+    pub fn open_default() -> SqlResult<Self> {
+        Self::open_path(&Self::default_db_path())
     }
 
     fn init(conn: Connection) -> SqlResult<Self> {
@@ -529,6 +545,391 @@ impl LibraryDb {
             });
         }
         Ok(out)
+    }
+
+    /// Persist a full Huawei Music cloud sync (favorites + playlists) into the 23-table SQLite database.
+    pub fn persist_huawei_sync(
+        &self,
+        sns_user_id: &str,
+        tracks: &[Value],
+        playlists: &[Value],
+        now_ms: i64,
+    ) -> SqlResult<()> {
+        let acc_id = self.upsert_account(
+            "huawei",
+            sns_user_id,
+            &format!("华为账号 · {sns_user_id}"),
+            "logged_in",
+            now_ms,
+        )?;
+
+        for t in tracks {
+            let Some(cid) = t.get("sourceTrackId").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let title = t.get("title").and_then(|v| v.as_str()).unwrap_or("").trim();
+            if cid.is_empty() || title.is_empty() {
+                continue;
+            }
+            let artists: Vec<ArtistDto> = t
+                .get("artists")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|a| a.as_str())
+                        .map(|name| ArtistDto {
+                            id: String::new(),
+                            name: name.to_string(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let album_title = t
+                .get("album")
+                .and_then(|v| v.as_str())
+                .unwrap_or("华为音乐");
+            let dur_secs = t
+                .get("durationSeconds")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(225);
+            let cover = t
+                .get("coverUrl")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            let input = SourceTrackInput {
+                source: "huawei".into(),
+                source_track_id: cid.to_string(),
+                title: title.to_string(),
+                artists,
+                album: Some(AlbumDto {
+                    id: String::new(),
+                    title: album_title.to_string(),
+                }),
+                duration_ms: Some(dur_secs * 1000),
+                cover_url: cover,
+                access: "full".into(),
+                quality: "lossless".into(),
+            };
+
+            if let Ok(canon_id) =
+                self.upsert_track_and_binding(&acc_id, "favorites", "huawei:fav", &input, now_ms)
+            {
+                let _ = self.add_favorite(&canon_id, now_ms);
+            }
+        }
+
+        for p in playlists {
+            let Some(raw_pid) = p
+                .get("sourcePlaylistId")
+                .and_then(|v| v.as_str())
+                .or_else(|| p.get("id").and_then(|v| v.as_str()))
+            else {
+                continue;
+            };
+            let source_pid = raw_pid.strip_prefix("pl_hw_").unwrap_or(raw_pid);
+            let name = p
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("华为云端歌单");
+            let desc = p
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("来自华为音乐账号云端歌单");
+            let cover = p.get("coverUrl").and_then(|v| v.as_str()).unwrap_or("");
+            let track_count = p.get("trackCount").and_then(|v| v.as_i64()).unwrap_or(0);
+            let pl_id = format!("pl_hw_{source_pid}");
+
+            self.conn.execute(
+                "INSERT INTO playlists(
+                    id, profile_id, kind, source, source_playlist_id, name, description,
+                    cover_url, track_count, revision, created_at, updated_at, last_synced_at
+                ) VALUES(?1, ?2, 'imported', 'huawei', ?3, ?4, ?5, ?6, ?7, 1, ?8, ?8, ?8)
+                ON CONFLICT(id) DO UPDATE SET
+                  name = excluded.name,
+                  description = excluded.description,
+                  cover_url = excluded.cover_url,
+                  track_count = excluded.track_count,
+                  revision = playlists.revision + 1,
+                  updated_at = excluded.updated_at,
+                  last_synced_at = excluded.last_synced_at",
+                params![
+                    pl_id,
+                    DEFAULT_PROFILE,
+                    source_pid,
+                    name,
+                    desc,
+                    cover,
+                    track_count,
+                    now_ms
+                ],
+            )?;
+
+            if let Some(tids) = p.get("trackIds").and_then(|v| v.as_array()) {
+                for (pos, tid_val) in tids.iter().enumerate() {
+                    if let Some(raw_tid) = tid_val.as_str() {
+                        let cid = raw_tid.strip_prefix("hw_").unwrap_or(raw_tid);
+                        let canon_id = self
+                            .conn
+                            .query_row(
+                                "SELECT home_track_id FROM source_identities WHERE source='huawei' AND source_track_id=?1",
+                                params![cid],
+                                |r| r.get::<_, String>(0),
+                            )
+                            .unwrap_or_else(|_| raw_tid.to_string());
+                        let _ = self.conn.execute(
+                            "INSERT OR REPLACE INTO playlist_tracks(playlist_id, track_id, position, added_at)
+                             VALUES(?1, ?2, ?3, ?4)",
+                            params![pl_id, canon_id, pos as i64, now_ms],
+                        );
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Persist scanned local lossless/standard audio files into SQLite.
+    pub fn persist_local_tracks(&self, tracks: &[SourceTrackInput], now_ms: i64) -> SqlResult<()> {
+        let acc_id = self.upsert_account("local", "local_disk", "本地无损曲库", "logged_in", now_ms)?;
+        for t in tracks {
+            let _ = self.upsert_track_and_binding(&acc_id, "local", "local:music", t, now_ms);
+        }
+        Ok(())
+    }
+
+    /// Toggle favorite status in SQLite (`favorites` and `member_refs`).
+    pub fn set_favorite(&self, raw_track_id: &str, is_favorite: bool, now_ms: i64) -> SqlResult<()> {
+        let cid = raw_track_id.strip_prefix("hw_").unwrap_or(raw_track_id);
+        let canon_id = self
+            .conn
+            .query_row(
+                "SELECT home_track_id FROM source_identities WHERE source_track_id = ?1 LIMIT 1",
+                params![cid],
+                |r| r.get::<_, String>(0),
+            )
+            .unwrap_or_else(|_| raw_track_id.to_string());
+
+        if is_favorite {
+            let _ = self.add_favorite(&canon_id, now_ms);
+        } else {
+            let _ = self.conn.execute(
+                "DELETE FROM favorites WHERE profile_id = ?1 AND track_id = ?2",
+                params![DEFAULT_PROFILE, canon_id],
+            );
+        }
+        Ok(())
+    }
+
+    /// Persist a user-created local multi-source playlist and its track members into SQLite.
+    pub fn upsert_local_playlist(
+        &self,
+        playlist_id: &str,
+        name: &str,
+        description: &str,
+        track_ids: &[String],
+        now_ms: i64,
+    ) -> SqlResult<()> {
+        self.conn.execute(
+            "INSERT INTO playlists(
+                id, profile_id, kind, source, source_playlist_id, name, description,
+                cover_url, track_count, revision, created_at, updated_at
+            ) VALUES(?1, ?2, 'local', NULL, NULL, ?3, ?4, '', ?5, 1, ?6, ?6)
+            ON CONFLICT(id) DO UPDATE SET
+              name = excluded.name,
+              description = excluded.description,
+              track_count = excluded.track_count,
+              revision = playlists.revision + 1,
+              updated_at = excluded.updated_at",
+            params![
+                playlist_id,
+                DEFAULT_PROFILE,
+                name,
+                description,
+                track_ids.len() as i64,
+                now_ms
+            ],
+        )?;
+        self.conn.execute(
+            "DELETE FROM playlist_tracks WHERE playlist_id = ?1",
+            params![playlist_id],
+        )?;
+        for (pos, tid) in track_ids.iter().enumerate() {
+            let cid = tid
+                .strip_prefix("hw_track_")
+                .or_else(|| tid.strip_prefix("hw_"))
+                .unwrap_or(tid);
+            let canon_id = self
+                .conn
+                .query_row(
+                    "SELECT home_track_id FROM source_identities WHERE source_track_id = ?1 LIMIT 1",
+                    params![cid],
+                    |r| r.get::<_, String>(0),
+                )
+                .unwrap_or_else(|_| tid.to_string());
+            let _ = self.conn.execute(
+                "INSERT OR REPLACE INTO playlist_tracks(playlist_id, track_id, position, added_at)
+                 VALUES(?1, ?2, ?3, ?4)",
+                params![playlist_id, canon_id, pos as i64, now_ms],
+            );
+        }
+        Ok(())
+    }
+
+    /// Load the persisted library snapshot (tracks + playlists) from the 23-table SQLite database
+    /// so the UI boots immediately from local disk without waiting for network calls.
+    pub fn load_runtime_snapshot(&self) -> SqlResult<Value> {
+        let mut fav_set = std::collections::HashSet::new();
+        {
+            let mut fstmt = self
+                .conn
+                .prepare("SELECT track_id FROM favorites WHERE profile_id = ?1")?;
+            let frows = fstmt.query_map(params![DEFAULT_PROFILE], |r| r.get::<_, String>(0))?;
+            for fr in frows.flatten() {
+                fav_set.insert(fr);
+            }
+        }
+
+        let mut stmt = self.conn.prepare(
+            "SELECT t.id, t.title, t.artists_json, t.album_json, t.duration_ms, t.cover_url
+             FROM tracks t
+             WHERE t.merged_into IS NULL
+             ORDER BY t.updated_at DESC
+             LIMIT 500",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            let id: String = row.get(0)?;
+            let title: String = row.get(1)?;
+            let artists_raw: String = row.get(2)?;
+            let album_raw: String = row.get(3)?;
+            let duration_ms: Option<i64> = row.get(4)?;
+            let cover_url: String = row.get(5)?;
+            Ok((id, title, artists_raw, album_raw, duration_ms, cover_url))
+        })?;
+
+        let mut tracks_out = Vec::new();
+        for item in rows.flatten() {
+            let (canon_id, title, artists_raw, album_raw, duration_ms, cover_url) = item;
+            let artists_dto: Vec<ArtistDto> =
+                serde_json::from_str(&artists_raw).unwrap_or_default();
+            let artists: Vec<String> = artists_dto.into_iter().map(|a| a.name).collect();
+            let album_title = serde_json::from_str::<AlbumDto>(&album_raw)
+                .map(|a| a.title)
+                .unwrap_or_else(|_| "华为音乐".into());
+
+            // Query bindings for this canonical track
+            let mut bstmt = self.conn.prepare(
+                "SELECT si.source, si.source_track_id, sb.access, sb.quality
+                 FROM source_identities si
+                 LEFT JOIN source_bindings sb ON sb.identity_id = si.id
+                 WHERE si.home_track_id = ?1
+                 ORDER BY si.import_seq ASC",
+            )?;
+            let brows = bstmt.query_map(params![canon_id], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, Option<String>>(2)?.unwrap_or_else(|| "full".into()),
+                    r.get::<_, Option<String>>(3)?.unwrap_or_else(|| "lossless".into()),
+                ))
+            })?;
+
+            let mut bindings = Vec::new();
+            let mut primary_hw_cid: Option<String> = None;
+            for (src, sid, acc, qual) in brows.flatten() {
+                if src == "huawei" && primary_hw_cid.is_none() {
+                    primary_hw_cid = Some(sid.clone());
+                }
+                bindings.push(json!({
+                    "source": src,
+                    "sourceTrackId": sid,
+                    "access": acc,
+                    "quality": qual,
+                    "formatLabel": if qual == "lossless" || qual == "hires" { "SQ 无损" } else { "320k MP3" }
+                }));
+            }
+            if bindings.is_empty() {
+                continue;
+            }
+
+            let frontend_id = primary_hw_cid
+                .as_ref()
+                .map(|cid| format!("hw_{cid}"))
+                .unwrap_or_else(|| canon_id.clone());
+
+            tracks_out.push(json!({
+                "id": frontend_id,
+                "canonicalId": canon_id,
+                "sourceTrackId": primary_hw_cid.unwrap_or_default(),
+                "title": title,
+                "artists": if artists.is_empty() { vec!["未知艺人".to_string()] } else { artists },
+                "album": album_title,
+                "durationSeconds": duration_ms.unwrap_or(225_000) / 1000,
+                "coverUrl": cover_url,
+                "isFavorite": fav_set.contains(&canon_id),
+                "bindings": bindings,
+            }));
+        }
+
+        // Load playlists
+        let mut pl_stmt = self.conn.prepare(
+            "SELECT id, kind, source, source_playlist_id, name, description, cover_url, track_count
+             FROM playlists
+             WHERE profile_id = ?1
+             ORDER BY updated_at DESC",
+        )?;
+        let pl_rows = pl_stmt.query_map(params![DEFAULT_PROFILE], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<String>>(2)?,
+                r.get::<_, Option<String>>(3)?,
+                r.get::<_, String>(4)?,
+                r.get::<_, String>(5)?,
+                r.get::<_, String>(6)?,
+                r.get::<_, i64>(7)?,
+            ))
+        })?;
+
+        let mut playlists_out = Vec::new();
+        for (pid, kind, src, src_pid, name, desc, cover, tcount) in pl_rows.flatten() {
+            let mut pt_stmt = self.conn.prepare(
+                "SELECT pt.track_id, si.source_track_id
+                 FROM playlist_tracks pt
+                 LEFT JOIN source_identities si ON si.home_track_id = pt.track_id AND si.source = 'huawei'
+                 WHERE pt.playlist_id = ?1
+                 ORDER BY pt.position ASC",
+            )?;
+            let pt_rows = pt_stmt.query_map(params![pid], |r| {
+                let tid: String = r.get(0)?;
+                let hw_sid: Option<String> = r.get(1)?;
+                Ok(hw_sid.map(|s| format!("hw_{s}")).unwrap_or(tid))
+            })?;
+            let tids: Vec<String> = pt_rows.flatten().collect();
+
+            playlists_out.push(json!({
+                "id": pid,
+                "kind": kind,
+                "source": src,
+                "sourcePlaylistId": src_pid,
+                "name": name,
+                "description": desc,
+                "coverUrl": cover,
+                "trackCount": tcount.max(tids.len() as i64),
+                "trackIds": tids,
+            }));
+        }
+
+        Ok(json!({
+            "ok": true,
+            "tableCount": self.table_count().unwrap_or(23),
+            "dbPath": Self::default_db_path().to_string_lossy(),
+            "tracks": tracks_out,
+            "playlists": playlists_out,
+        }))
     }
 }
 

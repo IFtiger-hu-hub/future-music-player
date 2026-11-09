@@ -31,6 +31,43 @@ export { applyThemeVariablesToDom };
 
 const initialAppearance = initializeAppearanceOnBoot();
 
+const UI_PREFS_STORAGE_KEY = 'future_music_ui_prefs_v1';
+
+interface PersistedUiPrefs {
+  volume?: number;
+  eqPreset?: 'harman' | 'flat' | 'vocal' | 'bass';
+  eqBands?: EqualizerBand[];
+  lyricOffsetMs?: number;
+  jevEnabled?: boolean;
+  historyTrackIds?: string[];
+}
+
+function loadPersistedUiPrefs(): PersistedUiPrefs {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return {};
+    const raw = window.localStorage.getItem(UI_PREFS_STORAGE_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as PersistedUiPrefs;
+  } catch {
+    return {};
+  }
+}
+
+function savePersistedUiPrefs(partial: PersistedUiPrefs): void {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    const prev = loadPersistedUiPrefs();
+    window.localStorage.setItem(
+      UI_PREFS_STORAGE_KEY,
+      JSON.stringify({ ...prev, ...partial })
+    );
+  } catch {
+    // ignore storage errors
+  }
+}
+
+const initialUiPrefs = loadPersistedUiPrefs();
+
 const INITIAL_MERGE_AUDITS: MergeAuditRecord[] = [
   {
     id: 'merge_wanfeng_01',
@@ -153,6 +190,7 @@ export interface PlayerState {
   adjustLyricOffset: (deltaMs: number) => void;
 
   // Huawei Account & Multi-source Sync Actions
+  hydrateLibraryFromSqlite: () => Promise<void>;
   triggerHuaweiSync: () => Promise<void>;
   completeHuaweiReauth: (accountLabel: string) => void;
   toggleSourceLogin: (sourceId: SourceId) => void;
@@ -183,9 +221,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   customAccent: initialAppearance.customAccent,
   isDesktopLyricOpen: false,
   isDesktopLyricLocked: false,
-  eqPreset: 'harman',
-  eqBands: DEFAULT_EQ_BANDS,
-  jevEnabled: false,
+  eqPreset: initialUiPrefs.eqPreset ?? 'harman',
+  eqBands: initialUiPrefs.eqBands ?? DEFAULT_EQ_BANDS,
+  jevEnabled: initialUiPrefs.jevEnabled ?? false,
   jevEndpoint: 'https://api.openai.com/v1/chat/completions',
   jevModel: 'gpt-4o-mini',
   mergeAudits: INITIAL_MERGE_AUDITS,
@@ -194,15 +232,20 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   sources: INITIAL_SOURCES,
   tracks: INITIAL_TRACKS,
   playlists: INITIAL_PLAYLISTS,
-  historyTrackIds: ['trk_wanfeng', 'trk_fushishan', 'trk_qilixiang', 'trk_yeqv'],
+  historyTrackIds: initialUiPrefs.historyTrackIds ?? [
+    'trk_wanfeng',
+    'trk_fushishan',
+    'trk_qilixiang',
+    'trk_yeqv',
+  ],
 
   currentTrack: INITIAL_TRACKS[0],
   activeSourceForPlayback: 'huawei',
   isPlaying: false,
   currentTimeMs: 0,
-  volume: 82,
+  volume: initialUiPrefs.volume ?? 82,
   qualityPreference: 'lossless',
-  lyricOffsetMs: 0,
+  lyricOffsetMs: initialUiPrefs.lyricOffsetMs ?? 0,
 
   toasts: [],
 
@@ -214,7 +257,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   setCommandPaletteOpen: (open) => set({ isCommandPaletteOpen: open }),
   setHuaweiAuthModalOpen: (open) => set({ isHuaweiAuthModalOpen: open }),
   setImportModalOpen: (open) => set({ isImportModalOpen: open }),
-  setVolume: (vol) => set({ volume: Math.max(0, Math.min(100, vol)) }),
+  setVolume: (vol) => {
+    const clamped = Math.max(0, Math.min(100, vol));
+    savePersistedUiPrefs({ volume: clamped });
+    set({ volume: clamped });
+  },
 
   searchHuaweiCatalog: async (query) => {
     try {
@@ -276,27 +323,34 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   setEqBandGain: (freqHz, gainDb) => {
     const clamped = Math.max(-12, Math.min(12, Math.round(gainDb * 10) / 10));
-    set((s) => ({
-      eqBands: s.eqBands.map((b) =>
+    set((s) => {
+      const nextBands = s.eqBands.map((b) =>
         b.freqHz === freqHz ? { ...b, gainDb: clamped } : b
-      ),
-    }));
+      );
+      savePersistedUiPrefs({ eqBands: nextBands });
+      return { eqBands: nextBands };
+    });
   },
 
   applyEqPreset: (preset) => {
     const gains = EQ_PRESET_CURVES[preset];
-    set((s) => ({
-      eqPreset: preset,
-      eqBands: s.eqBands.map((b, i) => ({ ...b, gainDb: gains[i] ?? 0 })),
-    }));
+    set((s) => {
+      const nextBands = s.eqBands.map((b, i) => ({ ...b, gainDb: gains[i] ?? 0 }));
+      savePersistedUiPrefs({ eqPreset: preset, eqBands: nextBands });
+      return {
+        eqPreset: preset,
+        eqBands: nextBands,
+      };
+    });
     get().pushToast(
       `已切换 10 段参量均衡器预设: ${preset.toUpperCase()}`,
-      'Web Audio 双二阶滤波器组 (10-Band Peaking BiquadFilter) 已实时生效',
+      'Web Audio 双二阶滤波器组 (10-Band Peaking BiquadFilter) 已实时生效并持久化',
       'success'
     );
   },
 
   setJevEnabled: (enabled) => {
+    savePersistedUiPrefs({ jevEnabled: enabled });
     set({ jevEnabled: enabled });
     get().pushToast(
       enabled ? 'Jev 灰区决策模型已启用' : 'Jev 灰区决策模型已关闭',
@@ -338,23 +392,40 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       playlists: [newPl, ...state.playlists],
       selectedPlaylistId: newPl.id,
     }));
-    get().pushToast('本地歌单已创建', `《${trimmed}》已保存`, 'success');
+    void musicGateway.saveLocalPlaylist({
+      id: newPl.id,
+      name: newPl.name,
+      description: newPl.description,
+      trackIds: newPl.trackIds,
+    });
+    get().pushToast('本地歌单已创建', `《${trimmed}》已持久化写入本地 SQLite 数据库`, 'success');
   },
 
   addTrackToLocalPlaylist: (playlistId, trackId) => {
+    let updatedPlaylist: PlaylistItem | null = null;
     set((state) => ({
       playlists: state.playlists.map((p) => {
         if (p.id !== playlistId || p.kind !== 'local') return p;
         if (p.trackIds.includes(trackId)) return p;
         const nextIds = [...p.trackIds, trackId];
-        return {
+        updatedPlaylist = {
           ...p,
           trackIds: nextIds,
           trackCount: nextIds.length,
           updatedAt: '刚刚更新',
         };
+        return updatedPlaylist;
       }),
     }));
+    if (updatedPlaylist) {
+      const pl = updatedPlaylist as PlaylistItem;
+      void musicGateway.saveLocalPlaylist({
+        id: pl.id,
+        name: pl.name,
+        description: pl.description,
+        trackIds: pl.trackIds,
+      });
+    }
   },
 
   resolveTrackStream: async (track, source, autoPlay = true) => {
@@ -460,12 +531,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     }
 
     const prevHistory = get().historyTrackIds.filter((id) => id !== track.id);
+    const nextHistory = [track.id, ...prevHistory].slice(0, 30);
+    savePersistedUiPrefs({ historyTrackIds: nextHistory });
     set({
       currentTrack: track,
       activeSourceForPlayback: chosenSource,
       isPlaying: true,
       currentTimeMs: 0,
-      historyTrackIds: [track.id, ...prevHistory],
+      historyTrackIds: nextHistory,
     });
 
     void get().resolveTrackStream(track, chosenSource, true);
@@ -572,7 +645,34 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   adjustLyricOffset: (deltaMs) => {
-    set((s) => ({ lyricOffsetMs: s.lyricOffsetMs + deltaMs }));
+    set((s) => {
+      const next = s.lyricOffsetMs + deltaMs;
+      savePersistedUiPrefs({ lyricOffsetMs: next });
+      return { lyricOffsetMs: next };
+    });
+  },
+
+  hydrateLibraryFromSqlite: async () => {
+    const snap = await musicGateway.fetchLibrarySnapshot();
+    if (!snap || (snap.tracks.length === 0 && snap.playlists.length === 0)) {
+      return;
+    }
+    set((state) => {
+      const nextTracks = snap.tracks.length > 0 ? snap.tracks : state.tracks;
+      const nextPlaylists =
+        snap.playlists.length > 0 ? snap.playlists : state.playlists;
+      const nextCurrent =
+        !state.isPlaying && nextTracks.length > 0
+          ? nextTracks[0]
+          : state.currentTrack;
+      return {
+        tracks: nextTracks,
+        playlists: nextPlaylists,
+        selectedPlaylistId:
+          nextPlaylists[0]?.id || state.selectedPlaylistId,
+        currentTrack: nextCurrent,
+      };
+    });
   },
 
   triggerHuaweiSync: async () => {

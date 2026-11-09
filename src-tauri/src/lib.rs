@@ -239,6 +239,83 @@ fn scan_music_folder(folder_path: String) -> Result<local_scanner::LocalScanSumm
 }
 
 #[tauri::command]
+fn get_library_snapshot() -> Result<serde_json::Value, String> {
+    let db = db::LibraryDb::open_default().map_err(|e| e.to_string())?;
+    db.load_runtime_snapshot().map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SavePlaylistArgs {
+    id: String,
+    name: String,
+    description: String,
+    track_ids: Vec<String>,
+}
+
+#[tauri::command]
+fn save_local_playlist(args: SavePlaylistArgs) -> Result<(), String> {
+    let db = db::LibraryDb::open_default().map_err(|e| e.to_string())?;
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    db.upsert_local_playlist(&args.id, &args.name, &args.description, &args.track_ids, now_ms)
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn configure_webkit_low_memory() {
+    #[repr(C)]
+    struct WebKitWebContext(std::ffi::c_void);
+    #[repr(C)]
+    struct WebKitMemoryPressureSettings(std::ffi::c_void);
+
+    extern "C" {
+        fn webkit_web_context_get_default() -> *mut WebKitWebContext;
+        fn webkit_web_context_set_cache_model(context: *mut WebKitWebContext, cache_model: i32);
+        fn webkit_memory_pressure_settings_new() -> *mut WebKitMemoryPressureSettings;
+        fn webkit_memory_pressure_settings_set_memory_limit(
+            settings: *mut WebKitMemoryPressureSettings,
+            memory_limit: u32,
+        );
+        fn webkit_memory_pressure_settings_set_conservative_threshold(
+            settings: *mut WebKitMemoryPressureSettings,
+            value: f64,
+        );
+        fn webkit_memory_pressure_settings_set_strict_threshold(
+            settings: *mut WebKitMemoryPressureSettings,
+            value: f64,
+        );
+        fn webkit_memory_pressure_settings_free(settings: *mut WebKitMemoryPressureSettings);
+        fn webkit_website_data_manager_set_memory_pressure_settings(
+            settings: *mut WebKitMemoryPressureSettings,
+        );
+    }
+
+    unsafe {
+        // Must be configured before or right as WebContext initializes:
+        // Limit WebProcess decoded image & JS caches to 160 MiB and use
+        // WEBKIT_CACHE_MODEL_DOCUMENT_VIEWER (0) so decoded cover bitmaps
+        // are evicted aggressively instead of accumulating hundreds of MBs.
+        let settings = webkit_memory_pressure_settings_new();
+        if !settings.is_null() {
+            webkit_memory_pressure_settings_set_memory_limit(settings, 160);
+            webkit_memory_pressure_settings_set_conservative_threshold(settings, 0.35);
+            webkit_memory_pressure_settings_set_strict_threshold(settings, 0.55);
+            webkit_website_data_manager_set_memory_pressure_settings(settings);
+            webkit_memory_pressure_settings_free(settings);
+        }
+
+        let ctx = webkit_web_context_get_default();
+        if !ctx.is_null() {
+            // 0 = WEBKIT_CACHE_MODEL_DOCUMENT_VIEWER (minimal memory cache)
+            webkit_web_context_set_cache_model(ctx, 0);
+        }
+    }
+}
+
+#[tauri::command]
 fn set_desktop_lyric_open(app: AppHandle, open: bool, locked: bool) -> Result<(), String> {
     if open {
         if let Some(win) = app.get_webview_window("desktop-lyric") {
@@ -305,10 +382,14 @@ fn start_desktop_lyric_dragging(app: AppHandle) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let _ = db::LibraryDb::open_default();
     bridge_server::spawn_embedded_bridge_server();
     tauri::Builder::default()
         .manage(AppRuntimeState::default())
         .setup(|app| {
+            #[cfg(target_os = "linux")]
+            configure_webkit_low_memory();
+
             let show_item = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
             let play_pause_item =
                 MenuItem::with_id(app, "play_pause", "播放 / 暂停", true, None::<&str>)?;
@@ -427,6 +508,8 @@ pub fn run() {
             sync_huawei_assets_live,
             parse_lyric_document,
             scan_music_folder,
+            get_library_snapshot,
+            save_local_playlist,
             set_desktop_lyric_open,
             set_desktop_lyric_locked,
             start_desktop_lyric_dragging
@@ -794,5 +877,44 @@ mod tests {
         assert_eq!(summary.imported_tracks[0].quality, "lossless");
 
         let _ = fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn test_sqlite_runtime_persistence_roundtrip() {
+        let db = LibraryDb::open_in_memory().expect("open in-memory db");
+        let tracks = vec![serde_json::json!({
+            "id": "hw_track_99001",
+            "sourceTrackId": "99001",
+            "title": "晚风心里吹",
+            "artists": ["阿梨粤"],
+            "album": "晚风心里吹",
+            "durationSeconds": 215,
+            "coverUrl": "https://example.com/music_cover_300x300.webp"
+        })];
+        let playlists = vec![serde_json::json!({
+            "id": "pl_hw_1001",
+            "name": "粤语精选",
+            "description": "华为云端歌单",
+            "coverUrl": "https://example.com/music_cover_300x300.webp",
+            "trackCount": 1,
+            "trackIds": ["hw_track_99001"]
+        })];
+
+        db.persist_huawei_sync("user_1001", &tracks, &playlists, 1710000000000)
+            .expect("persist huawei sync");
+        db.upsert_local_playlist(
+            "pl_local_1",
+            "深夜编码歌单",
+            "本地自定义",
+            &["hw_track_99001".to_string()],
+            1710000001000,
+        )
+        .expect("upsert local playlist");
+
+        let snap = db.load_runtime_snapshot().expect("load runtime snapshot");
+        assert_eq!(snap["ok"], true);
+        assert_eq!(snap["tracks"].as_array().unwrap().len(), 1);
+        assert_eq!(snap["tracks"][0]["title"], "晚风心里吹");
+        assert_eq!(snap["playlists"].as_array().unwrap().len(), 2);
     }
 }

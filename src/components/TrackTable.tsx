@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Play, Heart } from 'lucide-react';
 import { CanonicalTrack, SourceId } from '../types/music';
 import { usePlayerStore } from '../store/usePlayerStore';
@@ -11,17 +11,21 @@ const SOURCE_LABELS: Record<SourceId, string> = {
   navidrome: '云端',
 };
 
+const PAGE_SIZE = 32;
+
 export function formatDuration(seconds: number): string {
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
-function toThumbnailCoverUrl(url: string): string {
+export function toThumbnailCoverUrl(url: string): string {
   if (!url) return url;
   return url
     .replace('music_cover_1000x1000.', 'music_cover_300x300.')
-    .replace('-1000X1000-', '-300X300-')
+    .replace('music_cover_500x500.', 'music_cover_300x300.')
+    .replace('-1000X1000-', '-240X240-')
+    .replace('-600X600-', '-240X240-')
     .replace('w=1200', 'w=160')
     .replace('w=1000', 'w=160')
     .replace('w=800', 'w=160');
@@ -39,6 +43,29 @@ export const TrackTable: React.FC<TrackTableProps> = ({ tracks }) => {
   const togglePlay = usePlayerStore((s) => s.togglePlay);
   const toggleFavorite = usePlayerStore((s) => s.toggleFavorite);
 
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [tracks.length]);
+
+  useEffect(() => {
+    if (visibleCount >= tracks.length) return;
+    const node = sentinelRef.current;
+    if (!node || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleCount((prev) => Math.min(tracks.length, prev + PAGE_SIZE));
+        }
+      },
+      { rootMargin: '240px' }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [visibleCount, tracks.length]);
+
   if (tracks.length === 0) {
     return (
       <div className="py-16 text-center rounded-[22px] surface-bento">
@@ -51,6 +78,8 @@ export const TrackTable: React.FC<TrackTableProps> = ({ tracks }) => {
       </div>
     );
   }
+
+  const visibleTracks = tracks.slice(0, visibleCount);
 
   return (
     <div className="w-full select-none">
@@ -65,7 +94,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({ tracks }) => {
 
       {/* Track Rows */}
       <div className="divide-y divide-white/[0.03] mt-1">
-        {tracks.map((track, index) => {
+        {visibleTracks.map((track, index) => {
           const isCurrent = currentTrack.id === track.id;
           const hasLossless = track.bindings.some(
             (b) => b.quality === 'hires' || b.quality === 'lossless'
@@ -233,6 +262,18 @@ export const TrackTable: React.FC<TrackTableProps> = ({ tracks }) => {
           );
         })}
       </div>
+
+      {visibleCount < tracks.length && (
+        <div
+          ref={sentinelRef}
+          onClick={() =>
+            setVisibleCount((prev) => Math.min(tracks.length, prev + PAGE_SIZE))
+          }
+          className="py-4 text-center text-[12px] text-white/40 cursor-pointer hover:text-white/70 transition-colors"
+        >
+          已加载 {visibleCount} / {tracks.length} 首曲目 · 向下滚动自动加载更多
+        </div>
+      )}
     </div>
   );
 };

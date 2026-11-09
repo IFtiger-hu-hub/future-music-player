@@ -20,6 +20,7 @@ import {
   ParametricEqualizerEngine,
   subscribeAudioSeek,
 } from '../services/audioEngine';
+import { toThumbnailCoverUrl } from './TrackTable';
 
 const SOURCE_LABELS: Record<SourceId, { name: string; short: string }> = {
   huawei: { name: '华为音乐', short: '华为' },
@@ -199,7 +200,7 @@ export const FloatingPlayerBar: React.FC = () => {
             ? 'anonymous'
             : undefined
         }
-        preload="auto"
+        preload="metadata"
         src={currentTrack.audioUrl || undefined}
         onLoadedMetadata={(e) => {
           const dur = e.currentTarget.duration;
@@ -285,8 +286,11 @@ export const FloatingPlayerBar: React.FC = () => {
             }`}
           >
             <img
-              src={currentTrack.coverUrl}
+              src={toThumbnailCoverUrl(currentTrack.coverUrl)}
               alt={currentTrack.title}
+              width={44}
+              height={44}
+              decoding="async"
               className="w-full h-full object-cover"
             />
           </div>

@@ -323,14 +323,16 @@ fn normalize_provider_track(item: &Value) -> Option<Value> {
 
     let mut cover = String::new();
     if let Some(pic) = item.get("picture") {
-        // Prefer middleImgURL/smallImgURL for track lists so WebKit does not decode
+        // Prefer smallImgURL/middleImgURL for track lists so WebKit does not decode
         // 150+ 1000x1000 (4MB each) uncompressed bitmaps into RAM at once.
-        for k in ["middleImgURL", "smallImgURL", "bigImgURL"] {
+        for k in ["smallImgURL", "middleImgURL", "bigImgURL"] {
             if let Some(u) = pic.get(k).and_then(|v| v.as_str()) {
                 if is_safe_resource_url(u) {
                     cover = u
                         .replace("music_cover_1000x1000.", "music_cover_300x300.")
-                        .replace("-1000X1000-", "-300X300-");
+                        .replace("music_cover_500x500.", "music_cover_300x300.")
+                        .replace("-1000X1000-", "-240X240-")
+                        .replace("-600X600-", "-240X240-");
                     break;
                 }
             }
@@ -519,6 +521,12 @@ pub async fn handle_sync(session: &MusicSession) -> Result<Value, String> {
                 "trackIds": pl_track_ids,
             }));
         }
+    }
+
+    // Write-through to the 23-table SQLite database (~/.config/future-music/library.db)
+    if let Ok(db) = crate::db::LibraryDb::open_default() {
+        let now_ms = (crate::huawei::now_epoch_secs() * 1000) as i64;
+        let _ = db.persist_huawei_sync(&session.sns_user_id, &tracks, &playlists, now_ms);
     }
 
     Ok(json!({
@@ -994,15 +1002,21 @@ fn handle_client(mut stream: TcpStream) {
         }
         ("POST", "/api/huawei/favorite") => {
             let body_json: Value = serde_json::from_str(&body_part).unwrap_or_else(|_| json!({}));
+            let cid = body_json
+                .get("contentCode")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let fav = body_json
+                .get("favorite")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+            if !cid.is_empty() {
+                if let Ok(db) = crate::db::LibraryDb::open_default() {
+                    let now_ms = (crate::huawei::now_epoch_secs() * 1000) as i64;
+                    let _ = db.set_favorite(cid, fav, now_ms);
+                }
+            }
             if let Some(sess) = load_persisted_session() {
-                let cid = body_json
-                    .get("contentCode")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                let fav = body_json
-                    .get("favorite")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(true);
                 let action_type = if fav { "1" } else { "2" };
                 let _ = tauri::async_runtime::block_on(huawei_post(
                     &sess.token,
@@ -1016,6 +1030,37 @@ fn handle_client(mut stream: TcpStream) {
             }
             send_json(stream, 200, &json!({ "ok": true }));
         }
+        ("GET", "/api/library/snapshot") => {
+            match crate::db::LibraryDb::open_default().and_then(|db| db.load_runtime_snapshot()) {
+                Ok(val) => send_json(stream, 200, &val),
+                Err(e) => send_json(stream, 500, &json!({ "ok": false, "error": e.to_string() })),
+            }
+        }
+        ("POST", "/api/library/playlist") => {
+            let body_json: Value = serde_json::from_str(&body_part).unwrap_or_else(|_| json!({}));
+            let pid = body_json.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            let name = body_json.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let desc = body_json
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let tids: Vec<String> = body_json
+                .get("trackIds")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|x| x.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+            if !pid.is_empty() && !name.is_empty() {
+                if let Ok(db) = crate::db::LibraryDb::open_default() {
+                    let now_ms = (crate::huawei::now_epoch_secs() * 1000) as i64;
+                    let _ = db.upsert_local_playlist(pid, name, desc, &tids, now_ms);
+                }
+            }
+            send_json(stream, 200, &json!({ "ok": true }));
+        }
         ("GET", "/api/huawei/stream") => {
             let target = query_map.get("url").cloned().unwrap_or_default();
             let range = headers.get("range").cloned();
@@ -1025,6 +1070,10 @@ fn handle_client(mut stream: TcpStream) {
             let dir = home_dir().join("Music");
             let mut tracks = Vec::new();
             if let Ok(summary) = crate::local_scanner::scan_local_directory(&dir) {
+                if let Ok(db) = crate::db::LibraryDb::open_default() {
+                    let now_ms = (crate::huawei::now_epoch_secs() * 1000) as i64;
+                    let _ = db.persist_local_tracks(&summary.imported_tracks, now_ms);
+                }
                 for t in summary.imported_tracks {
                     let enc: String =
                         url::form_urlencoded::byte_serialize(t.source_track_id.as_bytes())

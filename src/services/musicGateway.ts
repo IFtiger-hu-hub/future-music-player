@@ -3,7 +3,7 @@ import { CanonicalTrack, LyricLine, PlaylistItem } from '../types/music';
 import { INITIAL_TRACKS } from '../data/mockMusicData';
 
 const DEFAULT_HUAWEI_COVER =
-  'https://contentcenter-drcn.dbankcdn.cn/img/pub_1/HW-Music_cover_100_1/93/v3/xM5ysS7yTcGMEt_KCRzMag/59b7193a-9f7e-4950-a6c5-ff658092a18c.jpg/music_cover_1000x1000.webp';
+  'https://contentcenter-drcn.dbankcdn.cn/img/pub_1/HW-Music_cover_100_1/93/v3/xM5ysS7yTcGMEt_KCRzMag/59b7193a-9f7e-4950-a6c5-ff658092a18c.jpg/music_cover_300x300.webp';
 
 function isTauriRuntime(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -49,33 +49,42 @@ export interface LocalScanResult {
 }
 
 function mapRawTracks(rawTracks: any[]): CanonicalTrack[] {
-  return (rawTracks || []).map((t: any): CanonicalTrack => ({
-    id: t.id,
-    title: t.title,
-    artists: t.artists || ['未知艺人'],
-    album: t.album || '华为音乐',
-    durationSeconds: t.durationSeconds || 225,
-    coverUrl: t.coverUrl || DEFAULT_HUAWEI_COVER,
-    dominantColors: ['#4C1D24', '#18181B', '#09090B'],
-    isFavorite: true,
-    bindings: [
-      {
-        source: 'huawei',
-        sourceTrackId: t.sourceTrackId,
-        access: 'full',
-        quality: 'lossless',
-        formatLabel: '无损 FLAC',
-      },
-    ],
-    lyrics: [
-      {
-        timeMs: 0,
-        endMs: 12000,
-        text: `${t.title} — ${t.artists?.join(' / ')}`,
-        translation: '正在加载华为音乐逐字 HMRC / LRC 歌词...',
-      },
-    ],
-  }));
+  return (rawTracks || []).map((t: any): CanonicalTrack => {
+    const isLocal = t.source === 'local';
+    return {
+      id: t.id,
+      title: t.title,
+      artists: t.artists || ['未知艺人'],
+      album: t.album || (isLocal ? '本地无损专辑' : '华为音乐'),
+      durationSeconds: t.durationSeconds || 225,
+      coverUrl: t.coverUrl || DEFAULT_HUAWEI_COVER,
+      dominantColors: isLocal
+        ? ['#065F46', '#18181B', '#09090B']
+        : ['#4C1D24', '#18181B', '#09090B'],
+      isFavorite: t.isFavorite !== undefined ? Boolean(t.isFavorite) : true,
+      audioUrl: t.streamUrl || undefined,
+      bindings: [
+        {
+          source: isLocal ? 'local' : 'huawei',
+          sourceTrackId: t.sourceTrackId,
+          access: 'full',
+          quality: isLocal ? 'hires' : 'lossless',
+          formatLabel: isLocal ? '本地 FLAC' : '无损 FLAC',
+          streamUrl: t.streamUrl || undefined,
+        },
+      ],
+      lyrics: [
+        {
+          timeMs: 0,
+          endMs: 12000,
+          text: `${t.title} — ${t.artists?.join(' / ')}`,
+          translation: isLocal
+            ? `本地音频文件 · ${t.sourceTrackId}`
+            : '正在加载华为音乐逐字 HMRC / LRC 歌词...',
+        },
+      ],
+    };
+  });
 }
 
 /**
@@ -284,6 +293,68 @@ export const musicGateway = {
       };
     } catch {
       return null;
+    }
+  },
+
+  async fetchLibrarySnapshot(): Promise<{
+    tracks: CanonicalTrack[];
+    playlists: PlaylistItem[];
+  } | null> {
+    try {
+      let data: any = null;
+      if (isTauriRuntime()) {
+        try {
+          data = await invoke<any>('get_library_snapshot');
+        } catch {
+          data = null;
+        }
+      }
+      if (!data) {
+        const res = await fetch(apiUrl('/api/library/snapshot'));
+        if (res.ok) {
+          data = await res.json();
+        }
+      }
+      if (!data?.ok) return null;
+
+      const tracks = mapRawTracks(data.tracks || []);
+      const playlists: PlaylistItem[] = (data.playlists || []).map(
+        (p: any): PlaylistItem => ({
+          id: p.id,
+          kind: p.kind === 'local' ? 'local' : 'imported',
+          source: p.source === 'local' ? 'local' : 'huawei',
+          name: p.name,
+          description: p.description || '本地持久化歌单',
+          coverUrl: p.coverUrl || tracks[0]?.coverUrl || INITIAL_TRACKS[0].coverUrl,
+          trackCount: p.trackCount ?? (p.trackIds?.length || 0),
+          updatedAt: p.updatedAt || '本地数据库',
+          trackIds: Array.isArray(p.trackIds) ? p.trackIds : [],
+        })
+      );
+      return { tracks, playlists };
+    } catch {
+      return null;
+    }
+  },
+
+  async saveLocalPlaylist(playlist: {
+    id: string;
+    name: string;
+    description: string;
+    trackIds: string[];
+  }): Promise<void> {
+    try {
+      if (isTauriRuntime()) {
+        await invoke('save_local_playlist', { args: playlist });
+        return;
+      }
+      await fetch(apiUrl('/api/library/playlist'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(playlist),
+      });
+    } catch {
+      // ignore offline error
     }
   },
 };

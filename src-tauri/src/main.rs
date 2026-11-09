@@ -2,12 +2,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    // Configure Glibc allocator and WebKit2GTK JavaScriptCore heap limits
-    // before GTK/WebKit child processes are forked so freed image/DOM buffers
-    // are immediately returned to the OS kernel instead of ballooning to 500MB+.
+    // Configure WebKit2GTK bmalloc override, DMABUF/Skia thread limits, and Glibc
+    // allocator before GTK/WebKit child processes are forked so WebKitWebProcess
+    // does not hoard 240MB+ in WKFastMalloc or spawn 8 Skia + dual GPU driver stacks.
     #[cfg(target_os = "linux")]
     {
         for (k, v) in [
+            ("WebKitSystemHeapOverrideEnablement", "0"),
+            ("WEBKIT_DISABLE_DMABUF_RENDERER", "1"),
+            ("WEBKIT_SKIA_CPU_PAINTING_THREADS", "1"),
+            ("WEBKIT_SKIA_GPU_PAINTING_THREADS", "0"),
             ("MALLOC_TRIM_THRESHOLD_", "65536"),
             ("MALLOC_MMAP_THRESHOLD_", "65536"),
             ("JSC_gcMaxHeapSize", "33554432"),
