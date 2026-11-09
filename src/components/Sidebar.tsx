@@ -125,17 +125,18 @@ export const Sidebar: React.FC = () => {
   );
 
   return (
-    <aside className="w-[228px] shrink-0 h-full theme-sidebar backdrop-blur-2xl border-r border-white/[0.06] flex flex-col justify-between px-3.5 pt-5 pb-4 select-none z-20">
+    <aside className="w-[228px] shrink-0 h-full theme-sidebar backdrop-blur-2xl border-r border-white/[0.06] flex flex-col justify-between px-3.5 pt-4 pb-4 select-none z-20">
       <div>
-        {/* macOS Traffic Lights Aesthetic & App Title */}
-        <div className="flex items-center gap-2 px-3 pb-6">
-          <div className="flex items-center gap-2 mr-2">
-            <span className="w-3 h-3 rounded-full bg-[#FF5F56]/90 border border-black/15" />
-            <span className="w-3 h-3 rounded-full bg-[#FFBD2E]/90 border border-black/15" />
-            <span className="w-3 h-3 rounded-full bg-[#27C93F]/90 border border-black/15" />
+        {/* Clean Brand Header (Window title bar is handled natively by OS) */}
+        <div className="flex items-center gap-2.5 px-3 pb-5">
+          <div
+            className="w-6 h-6 rounded-lg flex items-center justify-center text-white shadow-xs shrink-0"
+            style={{ backgroundColor: 'var(--theme-accent)' }}
+          >
+            <Disc3 className="w-3.5 h-3.5" />
           </div>
-          <span className="text-[13px] font-semibold tracking-tight text-white/85">
-            Music
+          <span className="text-[14px] font-semibold tracking-tight text-white/90">
+            Future Music
           </span>
         </div>
 

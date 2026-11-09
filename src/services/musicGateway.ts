@@ -5,6 +5,13 @@ import { INITIAL_TRACKS } from '../data/mockMusicData';
 const DEFAULT_HUAWEI_COVER =
   'https://contentcenter-drcn.dbankcdn.cn/img/pub_1/HW-Music_cover_100_1/93/v3/xM5ysS7yTcGMEt_KCRzMag/59b7193a-9f7e-4950-a6c5-ff658092a18c.jpg/music_cover_1000x1000.webp';
 
+function apiUrl(path: string): string {
+  if (typeof window !== 'undefined' && window.location.port === '1420') {
+    return path;
+  }
+  return `http://127.0.0.1:19420${path}`;
+}
+
 export interface HuaweiSessionStatus {
   loggedIn: boolean;
   snsUserID?: string;
@@ -43,7 +50,7 @@ export interface LocalScanResult {
 export const musicGateway = {
   async fetchHuaweiStatus(): Promise<HuaweiSessionStatus | null> {
     try {
-      const res = await fetch('/api/huawei/status');
+      const res = await fetch(apiUrl('/api/huawei/status'));
       if (!res.ok) return null;
       return await res.json();
     } catch {
@@ -54,7 +61,7 @@ export const musicGateway = {
   async searchHuaweiCatalog(query: string): Promise<CanonicalTrack[]> {
     const q = query.trim();
     if (!q) return [];
-    const res = await fetch('/api/huawei/search', {
+    const res = await fetch(apiUrl('/api/huawei/search'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query: q }),
@@ -98,7 +105,7 @@ export const musicGateway = {
     artist: string;
     quality: 'lossless' | 'hires' | 'standard';
   }): Promise<ResolvedStreamResult> {
-    const resp = await fetch('/api/huawei/resolve', {
+    const resp = await fetch(apiUrl('/api/huawei/resolve'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),
@@ -129,7 +136,7 @@ export const musicGateway = {
 
   async syncHuaweiLibrary(): Promise<SyncedHuaweiLibrary> {
     try {
-      const res = await fetch('/api/huawei/sync', { method: 'POST' });
+      const res = await fetch(apiUrl('/api/huawei/sync'), { method: 'POST' });
       if (!res.ok) throw new Error('Bridge sync not authenticated');
       const data = await res.json();
       if (!data?.ok) throw new Error('Bridge sync failed');
@@ -201,7 +208,7 @@ export const musicGateway = {
 
   async setHuaweiFavorite(contentCode: string, favorite: boolean): Promise<void> {
     if (!contentCode) return;
-    await fetch('/api/huawei/favorite', {
+    await fetch(apiUrl('/api/huawei/favorite'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ contentCode, favorite }),
@@ -210,7 +217,7 @@ export const musicGateway = {
 
   async scanLocalDirectory(): Promise<LocalScanResult | null> {
     try {
-      const res = await fetch('/api/local/scan', {
+      const res = await fetch(apiUrl('/api/local/scan'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),

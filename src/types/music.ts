@@ -41,34 +41,6 @@ export interface ThemePalette {
   dark: boolean;
 }
 
-export type ThemeId =
-  | 'apple_dark'
-  | 'light'
-  | 'ocean'
-  | 'sage'
-  | 'sand'
-  | 'rose'
-  | 'ice'
-  | 'midnight'
-  | 'forest'
-  | 'graphite'
-  | 'wine'
-  | 'coffee'
-  | 'obsidian';
-
-export interface ThemePalette {
-  id: ThemeId;
-  label: string;
-  base: string;
-  surface: string;
-  elevated: string;
-  text: string;
-  secondary: string;
-  muted: string;
-  accent: string;
-  dark: boolean;
-}
-
 export type AudioAccess = 'full' | 'preview' | 'unknown';
 export type AudioQuality = 'lossless' | 'hires' | 'standard';
 

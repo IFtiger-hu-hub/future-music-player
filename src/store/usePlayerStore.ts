@@ -362,7 +362,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const binding =
       track.bindings.find((b) => b.source === activeSrc) || track.bindings[0];
 
-    if (binding?.streamUrl && binding.streamUrl.startsWith('/api/local/stream')) {
+    if (binding?.streamUrl && binding.streamUrl.includes('/api/local/stream')) {
       set((state) => ({
         currentTrack:
           state.currentTrack.id === track.id

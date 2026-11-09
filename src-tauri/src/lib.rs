@@ -1,3 +1,4 @@
+pub mod bridge_server;
 pub mod db;
 pub mod huawei;
 pub mod local_scanner;
@@ -20,7 +21,7 @@ impl Default for AppRuntimeState {
     fn default() -> Self {
         Self {
             active_attempt: Mutex::new(None),
-            active_session: Mutex::new(None),
+            active_session: Mutex::new(bridge_server::load_persisted_session()),
         }
     }
 }
@@ -147,6 +148,7 @@ async fn complete_huawei_callback_internal(
 
     match huawei::exchange_code_for_music_session(attempt).await {
         Ok(session) => {
+            bridge_server::save_persisted_session(&session);
             let payload = HuaweiAuthSuccessPayload {
                 sns_user_id: session.sns_user_id.clone(),
                 account_key: session.account_key(),
@@ -199,6 +201,7 @@ fn scan_music_folder(folder_path: String) -> Result<local_scanner::LocalScanSumm
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    bridge_server::spawn_embedded_bridge_server();
     tauri::Builder::default()
         .manage(AppRuntimeState::default())
         .invoke_handler(tauri::generate_handler![

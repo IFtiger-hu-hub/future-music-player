@@ -12,11 +12,12 @@
   "app": {
     "windows": [
       {
-        "title": "Future Music · 多源流光音乐客户端",
+        "title": "Future Music",
         "width": 1280,
         "height": 820,
         "minWidth": 1024,
         "minHeight": 680,
+        "decorations": true,
         "resizable": true,
         "fullscreen": false
       }
