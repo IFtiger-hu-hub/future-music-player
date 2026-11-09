@@ -218,6 +218,7 @@ export const FloatingPlayerBar: React.FC = () => {
           }
         }}
         onTimeUpdate={(e) => {
+          if (isStageOpen) return;
           setCurrentTimeMs(Math.floor(e.currentTarget.currentTime * 1000));
         }}
         onEnded={nextTrack}
@@ -281,7 +282,7 @@ export const FloatingPlayerBar: React.FC = () => {
 
           {/* Circular Album Cover */}
           <div
-            className={`relative z-10 w-11 h-11 rounded-full overflow-hidden shadow-md ring-2 ring-white/25 transition-transform duration-300 group-hover:scale-105 ${
+            className={`relative z-10 w-11 h-11 rounded-full overflow-hidden shadow-md ring-2 ring-white/25 transition-transform duration-300 group-hover:scale-105 will-change-transform [transform:translateZ(0)] ${
               isPlaying ? 'animate-[spin_18s_linear_infinite]' : ''
             }`}
           >

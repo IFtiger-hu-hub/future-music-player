@@ -265,53 +265,124 @@ fn save_local_playlist(args: SavePlaylistArgs) -> Result<(), String> {
 }
 
 #[cfg(target_os = "linux")]
-fn configure_webkit_low_memory() {
-    #[repr(C)]
-    struct WebKitWebContext(std::ffi::c_void);
-    #[repr(C)]
-    struct WebKitMemoryPressureSettings(std::ffi::c_void);
+#[repr(C)]
+struct GList {
+    data: *mut std::ffi::c_void,
+    next: *mut GList,
+    prev: *mut GList,
+}
 
-    extern "C" {
-        fn webkit_web_context_get_default() -> *mut WebKitWebContext;
-        fn webkit_web_context_set_cache_model(context: *mut WebKitWebContext, cache_model: i32);
-        fn webkit_memory_pressure_settings_new() -> *mut WebKitMemoryPressureSettings;
-        fn webkit_memory_pressure_settings_set_memory_limit(
-            settings: *mut WebKitMemoryPressureSettings,
-            memory_limit: u32,
-        );
-        fn webkit_memory_pressure_settings_set_conservative_threshold(
-            settings: *mut WebKitMemoryPressureSettings,
-            value: f64,
-        );
-        fn webkit_memory_pressure_settings_set_strict_threshold(
-            settings: *mut WebKitMemoryPressureSettings,
-            value: f64,
-        );
-        fn webkit_memory_pressure_settings_free(settings: *mut WebKitMemoryPressureSettings);
-        fn webkit_website_data_manager_set_memory_pressure_settings(
-            settings: *mut WebKitMemoryPressureSettings,
-        );
+#[cfg(target_os = "linux")]
+extern "C" {
+    fn webkit_web_context_get_default() -> *mut std::ffi::c_void;
+    fn webkit_web_context_set_cache_model(context: *mut std::ffi::c_void, cache_model: i32);
+    fn webkit_memory_pressure_settings_new() -> *mut std::ffi::c_void;
+    fn webkit_memory_pressure_settings_set_memory_limit(
+        settings: *mut std::ffi::c_void,
+        memory_limit: u32,
+    );
+    fn webkit_memory_pressure_settings_set_conservative_threshold(
+        settings: *mut std::ffi::c_void,
+        value: f64,
+    );
+    fn webkit_memory_pressure_settings_set_strict_threshold(
+        settings: *mut std::ffi::c_void,
+        value: f64,
+    );
+    fn webkit_memory_pressure_settings_free(settings: *mut std::ffi::c_void);
+    fn webkit_website_data_manager_set_memory_pressure_settings(
+        settings: *mut std::ffi::c_void,
+    );
+    fn webkit_web_view_get_type() -> usize;
+    fn webkit_web_view_get_settings(webview: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+    fn webkit_settings_set_hardware_acceleration_policy(
+        settings: *mut std::ffi::c_void,
+        policy: i32,
+    );
+    fn webkit_settings_set_enable_2d_canvas_acceleration(
+        settings: *mut std::ffi::c_void,
+        enabled: i32,
+    );
+    fn webkit_settings_set_enable_webgl(settings: *mut std::ffi::c_void, enabled: i32);
+    fn webkit_settings_set_enable_smooth_scrolling(settings: *mut std::ffi::c_void, enabled: i32);
+    fn webkit_settings_set_enable_page_cache(settings: *mut std::ffi::c_void, enabled: i32);
+    fn gtk_window_list_toplevels() -> *mut GList;
+    fn gtk_container_get_type() -> usize;
+    fn gtk_container_get_children(container: *mut std::ffi::c_void) -> *mut GList;
+    fn g_type_check_instance_is_a(instance: *mut std::ffi::c_void, iface_type: usize) -> i32;
+    fn g_list_free(list: *mut GList);
+}
+
+#[cfg(target_os = "linux")]
+unsafe fn enable_hw_accel_on_widget_tree(widget: *mut std::ffi::c_void) {
+    if widget.is_null() {
+        return;
+    }
+    let webview_type = webkit_web_view_get_type();
+    if g_type_check_instance_is_a(widget, webview_type) != 0 {
+        let settings = webkit_web_view_get_settings(widget);
+        if !settings.is_null() {
+            // 1 = WEBKIT_HARDWARE_ACCELERATION_POLICY_ALWAYS
+            webkit_settings_set_hardware_acceleration_policy(settings, 1);
+            webkit_settings_set_enable_2d_canvas_acceleration(settings, 1);
+            webkit_settings_set_enable_webgl(settings, 1);
+            webkit_settings_set_enable_smooth_scrolling(settings, 1);
+            webkit_settings_set_enable_page_cache(settings, 1);
+        }
+        return;
     }
 
+    let container_type = gtk_container_get_type();
+    if g_type_check_instance_is_a(widget, container_type) != 0 {
+        let children = gtk_container_get_children(widget);
+        let mut node = children;
+        while !node.is_null() {
+            enable_hw_accel_on_widget_tree((*node).data);
+            node = (*node).next;
+        }
+        if !children.is_null() {
+            g_list_free(children);
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn enable_webkit_hardware_acceleration_all_windows() {
     unsafe {
-        // Must be configured before or right as WebContext initializes:
-        // Limit WebProcess decoded image & JS caches to 160 MiB and use
-        // WEBKIT_CACHE_MODEL_DOCUMENT_VIEWER (0) so decoded cover bitmaps
-        // are evicted aggressively instead of accumulating hundreds of MBs.
+        let toplevels = gtk_window_list_toplevels();
+        let mut node = toplevels;
+        while !node.is_null() {
+            enable_hw_accel_on_widget_tree((*node).data);
+            node = (*node).next;
+        }
+        if !toplevels.is_null() {
+            g_list_free(toplevels);
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn configure_webkit_low_memory() {
+    unsafe {
+        // Use a balanced 384 MiB ceiling with 0.75/0.90 thresholds and
+        // WEBKIT_CACHE_MODEL_DOCUMENT_BROWSER (2) so GPU tile textures and
+        // decoded cover bitmaps remain cached during scrolling without thrashing.
         let settings = webkit_memory_pressure_settings_new();
         if !settings.is_null() {
-            webkit_memory_pressure_settings_set_memory_limit(settings, 160);
-            webkit_memory_pressure_settings_set_conservative_threshold(settings, 0.35);
-            webkit_memory_pressure_settings_set_strict_threshold(settings, 0.55);
+            webkit_memory_pressure_settings_set_memory_limit(settings, 384);
+            webkit_memory_pressure_settings_set_conservative_threshold(settings, 0.75);
+            webkit_memory_pressure_settings_set_strict_threshold(settings, 0.90);
             webkit_website_data_manager_set_memory_pressure_settings(settings);
             webkit_memory_pressure_settings_free(settings);
         }
 
         let ctx = webkit_web_context_get_default();
         if !ctx.is_null() {
-            // 0 = WEBKIT_CACHE_MODEL_DOCUMENT_VIEWER (minimal memory cache)
-            webkit_web_context_set_cache_model(ctx, 0);
+            // 2 = WEBKIT_CACHE_MODEL_DOCUMENT_BROWSER (keeps active GPU tiles & cover bitmaps)
+            webkit_web_context_set_cache_model(ctx, 2);
         }
+
+        enable_webkit_hardware_acceleration_all_windows();
     }
 }
 
@@ -355,6 +426,8 @@ fn set_desktop_lyric_open(app: AppHandle, open: bool, locked: bool) -> Result<()
         let _ = win.show();
         let _ = win.set_always_on_top(true);
         let _ = win.set_ignore_cursor_events(locked);
+        #[cfg(target_os = "linux")]
+        enable_webkit_hardware_acceleration_all_windows();
     } else if let Some(win) = app.get_webview_window("desktop-lyric") {
         // Destroy the secondary WebviewWindow when closed so its WebKitWebProcess
         // exits immediately and frees ~140MB of renderer memory.

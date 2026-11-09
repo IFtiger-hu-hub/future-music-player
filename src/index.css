@@ -271,6 +271,8 @@ html[data-theme-mode="dark"] .source-chip {
 .theme-topbar {
   background-color: color-mix(in srgb, var(--theme-base) 88%, transparent);
   border-color: var(--theme-border);
+  transform: translateZ(0);
+  backface-visibility: hidden;
 }
 
 .theme-stage {
@@ -286,6 +288,8 @@ html[data-theme-mode="dark"] .source-chip {
   background-color: color-mix(in srgb, var(--theme-surface) 88%, transparent);
   border-color: var(--theme-border);
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  transform: translateZ(0);
+  backface-visibility: hidden;
 }
 
 html[data-theme-mode="light"] .theme-harmony-dock {
