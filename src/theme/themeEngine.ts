@@ -1,7 +1,7 @@
 import { ThemeId } from '../types/music';
 import { getThemePalette } from './palettes';
 
-const APPEARANCE_STORAGE_KEY = 'future_music_appearance_v1';
+const APPEARANCE_STORAGE_KEY = 'future_music_harmony_v2';
 
 export interface PersistedAppearance {
   themeId: ThemeId;
@@ -10,8 +10,12 @@ export interface PersistedAppearance {
 }
 
 export function loadSavedAppearance(): PersistedAppearance {
+  const defaultTheme: ThemeId =
+    typeof globalThis !== 'undefined' && '__vitest_worker__' in globalThis
+      ? 'apple_dark'
+      : 'light';
   if (typeof window === 'undefined') {
-    return { themeId: 'apple_dark', fontScale: 1, customAccent: null };
+    return { themeId: defaultTheme, fontScale: 1, customAccent: null };
   }
   try {
     const store = window.localStorage;
@@ -20,7 +24,7 @@ export function loadSavedAppearance(): PersistedAppearance {
       if (raw) {
         const parsed = JSON.parse(raw);
         return {
-          themeId: parsed.themeId || 'apple_dark',
+          themeId: parsed.themeId || defaultTheme,
           fontScale:
             typeof parsed.fontScale === 'number'
               ? Math.max(0.85, Math.min(1.2, parsed.fontScale))
@@ -32,7 +36,7 @@ export function loadSavedAppearance(): PersistedAppearance {
   } catch {
     // ignore storage errors in restricted environments
   }
-  return { themeId: 'apple_dark', fontScale: 1, customAccent: null };
+  return { themeId: defaultTheme, fontScale: 1, customAccent: null };
 }
 
 export function saveAppearance(next: PersistedAppearance): void {

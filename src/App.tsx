@@ -2,7 +2,6 @@ import { useEffect } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { usePlayerStore } from './store/usePlayerStore';
 import { musicGateway } from './services/musicGateway';
-import { Sidebar } from './components/Sidebar';
 import { TopSourceBar } from './components/TopSourceBar';
 import { FloatingPlayerBar } from './components/FloatingPlayerBar';
 import { AmbientLyricStage } from './components/AmbientLyricStage';
@@ -19,7 +18,7 @@ import { HistoryView } from './views/HistoryView';
 import { SourcesView } from './views/SourcesView';
 import { SettingsView } from './views/SettingsView';
 
-const FLCLASH_VIEW_TRANSITION = {
+const HARMONY_VIEW_TRANSITION = {
   type: 'spring' as const,
   stiffness: 400,
   damping: 34,
@@ -35,6 +34,22 @@ export function App() {
   const setCommandPaletteOpen = usePlayerStore((s) => s.setCommandPaletteOpen);
   const completeHuaweiReauth = usePlayerStore((s) => s.completeHuaweiReauth);
   const triggerHuaweiSync = usePlayerStore((s) => s.triggerHuaweiSync);
+  const setThemeId = usePlayerStore((s) => s.setThemeId);
+
+  // Initialize HarmonyOS Pure Light theme on first desktop launch to match design blueprint
+  useEffect(() => {
+    try {
+      const store = window.localStorage;
+      if (store && typeof store.getItem === 'function') {
+        if (!store.getItem('future_music_harmony_light_v1')) {
+          store.setItem('future_music_harmony_light_v1', '1');
+          setThemeId('light');
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, [setThemeId]);
 
   // Auto-discover persisted Huawei Music session on startup
   useEffect(() => {
@@ -71,44 +86,38 @@ export function App() {
 
   return (
     <div className="h-screen w-screen overflow-hidden flex flex-col app-shell-root relative">
-      {/* Main macOS Apple Music Window Split */}
-      <div className="flex-1 flex min-h-0 overflow-hidden theme-main-area">
-        {/* Left Apple Music Translucent Vibrancy Sidebar */}
-        <Sidebar />
+      {/* HarmonyOS NEXT Full-Bleed Desktop Stage */}
+      <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden theme-main-area theme-stage">
+        <TopSourceBar />
 
-        {/* Right Main Content Stage */}
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden theme-stage">
-          <TopSourceBar />
-
-          <main className="flex-1 overflow-y-auto px-9 pt-6 pb-28">
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={`${activeNav}-${activeSourceFilter}`}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={FLCLASH_VIEW_TRANSITION}
-                className="max-w-5xl mx-auto space-y-8"
-              >
-                {activeNav === 'favorites' && <FavoritesView />}
-                {(activeNav === 'local_playlists' ||
-                  activeNav === 'imported_playlists') && <PlaylistsView />}
-                {activeNav === 'search' && <SearchView />}
-                {activeNav === 'history' && <HistoryView />}
-                {activeNav === 'sources' && <SourcesView />}
-                {activeNav === 'settings' && <SettingsView />}
-              </motion.div>
-            </AnimatePresence>
-          </main>
-        </div>
+        <main className="flex-1 overflow-y-auto px-8 xl:px-12 pt-2 pb-28">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={`${activeNav}-${activeSourceFilter}`}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={HARMONY_VIEW_TRANSITION}
+              className="max-w-[1440px] mx-auto space-y-7"
+            >
+              {activeNav === 'favorites' && <FavoritesView />}
+              {(activeNav === 'local_playlists' ||
+                activeNav === 'imported_playlists') && <PlaylistsView />}
+              {activeNav === 'search' && <SearchView />}
+              {activeNav === 'history' && <HistoryView />}
+              {activeNav === 'sources' && <SourcesView />}
+              {activeNav === 'settings' && <SettingsView />}
+            </motion.div>
+          </AnimatePresence>
+        </main>
       </div>
 
-      {/* Bottom Apple Music Frosted Glass Player Bar (with real <audio> & Web Audio EQ engine) */}
+      {/* HarmonyOS Dual Floating Bottom Capsules (Nav Capsule + Vinyl Mini-Player Capsule) */}
       <div className="theme-main-area">
         <FloatingPlayerBar />
       </div>
 
-      {/* Fullscreen Apple Music Optical Depth-of-Field Lyric Stage */}
+      {/* Fullscreen Optical Depth-of-Field Lyric Stage */}
       <AmbientLyricStage />
 
       {/* Desktop Floating Lyric Overlay */}
@@ -121,8 +130,8 @@ export function App() {
         <CommandPaletteModal />
       </div>
 
-      {/* Subtle Apple Music Toast Pill Stack */}
-      <div className="fixed bottom-24 right-6 z-50 flex flex-col gap-2 max-w-xs w-full pointer-events-none">
+      {/* Toast Notification Stack */}
+      <div className="fixed bottom-24 right-8 z-50 flex flex-col gap-2 max-w-xs w-full pointer-events-none theme-main-area">
         <AnimatePresence>
           {toasts.map((t) => (
             <motion.div
@@ -131,13 +140,13 @@ export function App() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 8, scale: 0.96 }}
               transition={{ type: 'spring', stiffness: 420, damping: 32 }}
-              className="px-4 py-3 rounded-2xl bg-[#242426]/95 backdrop-blur-2xl border border-white/[0.1] shadow-[0_16px_40px_rgba(0,0,0,0.55)] pointer-events-auto"
+              className="px-4 py-3 rounded-[20px] theme-modal backdrop-blur-2xl border pointer-events-auto"
             >
-              <div className="text-[13px] font-semibold text-white">
+              <div className="text-[13px] font-bold text-white">
                 {t.title}
               </div>
               {t.detail && (
-                <p className="text-[11px] text-white/55 mt-0.5 leading-relaxed">
+                <p className="text-[11.5px] text-white/60 mt-0.5 leading-relaxed">
                   {t.detail}
                 </p>
               )}

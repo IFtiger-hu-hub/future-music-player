@@ -1,9 +1,17 @@
 import React from 'react';
-import { Palette, Check, RotateCcw, Sliders } from 'lucide-react';
+import {
+  Palette,
+  Check,
+  RotateCcw,
+  Sliders,
+  Disc3,
+  SlidersHorizontal,
+} from 'lucide-react';
 import { usePlayerStore } from '../store/usePlayerStore';
 import { THEME_PALETTES, CUSTOM_ACCENT_SWATCHES } from '../theme/palettes';
 
 export const SettingsView: React.FC = () => {
+  const setActiveNav = usePlayerStore((s) => s.setActiveNav);
   const themeId = usePlayerStore((s) => s.themeId);
   const setThemeId = usePlayerStore((s) => s.setThemeId);
   const fontScale = usePlayerStore((s) => s.fontScale);
@@ -20,40 +28,56 @@ export const SettingsView: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">
-            外观、音频与均衡器
-          </h1>
-          <p className="text-[13px] text-white/50 mt-1">
-            自定义 13 款温润浅色与沉浸深色主题色板、字体缩放及 10 段参量均衡器
-          </p>
+      {/* HarmonyOS Top Capsule Switcher for Cafe馆 */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => setActiveNav('sources')}
+            className="h-9 px-5 rounded-full surface-bento hover:bg-white/[0.1] text-white/75 text-[13px] font-semibold flex items-center gap-2 transition-colors cursor-pointer"
+          >
+            <Disc3 className="w-3.5 h-3.5" />
+            <span>音源与账号管理</span>
+          </button>
+          <button
+            onClick={() => setActiveNav('settings')}
+            className="h-9 px-5 rounded-full bg-[#24262A] !text-white text-[13px] font-semibold flex items-center gap-2 shadow-xs cursor-pointer"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5 !text-white" />
+            <span>音效与主题外观</span>
+          </button>
         </div>
+
         <button
-          onClick={resetAppearance}
-          className="px-3.5 py-1.5 rounded-full bg-white/[0.06] hover:bg-white/[0.12] text-[12px] font-medium text-white/80 flex items-center gap-1.5 cursor-pointer"
+          onClick={() => {
+            resetAppearance();
+            setThemeId('light');
+          }}
+          className="h-9 px-4 rounded-full surface-bento hover:bg-white/[0.1] text-[12px] font-medium text-white/80 flex items-center gap-1.5 cursor-pointer transition-colors"
         >
           <RotateCcw className="w-3.5 h-3.5" />
-          <span>恢复默认外观</span>
+          <span>恢复鸿蒙默认浅色</span>
         </button>
       </div>
 
       {/* Theme System & Appearance Card */}
-      <div className="p-6 rounded-2xl bg-white/[0.03] border border-white/[0.07] space-y-6">
-        <div className="flex items-center gap-2.5">
-          <Palette
-            className="w-4 h-4"
-            style={{ color: 'var(--theme-accent)' }}
-          />
-          <h3 className="text-[15px] font-semibold text-white">
-            主题色板 (Themes)
-          </h3>
+      <div className="p-6 rounded-[24px] surface-bento space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <Palette
+              className="w-4 h-4"
+              style={{ color: 'var(--theme-accent)' }}
+            />
+            <h3 className="text-[16px] font-bold text-white">
+              鸿蒙全场景主题色板 (13 款预设)
+            </h3>
+          </div>
+          <span className="badge-lossless">深浅色自适应</span>
         </div>
 
         {/* Light Themes */}
         <div className="space-y-2.5">
           <div className="text-[12px] font-medium text-white/55">
-            浅色温润色板 (晨光 · 晴海 · 鼠尾草 · 暖砂 · 蔷薇 · 冰川)
+            浅色模式 (晨光 · 晴海 · 鼠尾草 · 暖砂 · 蔷薇 · 冰川)
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
             {THEME_PALETTES.filter((t) => !t.dark).map((p) => {
@@ -65,9 +89,9 @@ export const SettingsView: React.FC = () => {
                   style={{
                     backgroundColor: p.base,
                     color: p.text,
-                    borderColor: selected ? p.accent : 'rgba(0,0,0,0.12)',
+                    borderColor: selected ? p.accent : 'rgba(0,0,0,0.1)',
                   }}
-                  className={`p-3 rounded-xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between h-20 shadow-xs hover:scale-[1.02] ${
+                  className={`p-3 rounded-[16px] border-2 text-left transition-all cursor-pointer flex flex-col justify-between h-20 shadow-xs hover:scale-[1.02] ${
                     selected ? 'shadow-md' : ''
                   }`}
                 >
@@ -103,7 +127,7 @@ export const SettingsView: React.FC = () => {
         {/* Dark Themes */}
         <div className="space-y-2.5">
           <div className="text-[12px] font-medium text-white/55">
-            深色沉浸色板 (绯红暗夜 · 午夜蓝 · 深林 · 石墨 · 夜玫瑰 · 咖啡 · 曜石)
+            深色模式 (绯红暗夜 · 午夜蓝 · 深林 · 石墨 · 夜玫瑰 · 咖啡 · 曜石)
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3">
             {THEME_PALETTES.filter((t) => t.dark).map((p) => {
@@ -119,7 +143,7 @@ export const SettingsView: React.FC = () => {
                       ? p.accent
                       : 'rgba(255,255,255,0.12)',
                   }}
-                  className={`p-3 rounded-xl border-2 text-left transition-all cursor-pointer flex flex-col justify-between h-20 shadow-xs hover:scale-[1.02] ${
+                  className={`p-3 rounded-[16px] border-2 text-left transition-all cursor-pointer flex flex-col justify-between h-20 shadow-xs hover:scale-[1.02] ${
                     selected ? 'shadow-md' : ''
                   }`}
                 >
@@ -156,7 +180,7 @@ export const SettingsView: React.FC = () => {
         <div className="pt-4 border-t border-white/[0.06] grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-2">
             <div className="flex items-center justify-between text-[13px]">
-              <span className="font-medium text-white">界面字体大小</span>
+              <span className="font-medium text-white">界面字号缩放</span>
               <span className="font-mono-tabular text-white/60">
                 {Math.round(fontScale * 100)}%
               </span>
@@ -175,7 +199,7 @@ export const SettingsView: React.FC = () => {
 
           <div className="space-y-2">
             <div className="flex items-center justify-between text-[13px]">
-              <span className="font-medium text-white">自定义强调色</span>
+              <span className="font-medium text-white">自定义品牌点缀色</span>
               <button
                 onClick={() => setCustomAccent(null)}
                 className="text-[11px] text-white/50 hover:text-white cursor-pointer"
@@ -190,9 +214,7 @@ export const SettingsView: React.FC = () => {
                   onClick={() => setCustomAccent(hex)}
                   style={{ backgroundColor: hex }}
                   className={`w-6 h-6 rounded-full cursor-pointer transition-transform hover:scale-110 ${
-                    customAccent === hex
-                      ? 'ring-2 ring-white ring-offset-2 ring-offset-black/40'
-                      : ''
+                    customAccent === hex ? 'ring-2 ring-[#FA2D48]' : ''
                   }`}
                 />
               ))}
@@ -201,25 +223,25 @@ export const SettingsView: React.FC = () => {
         </div>
       </div>
 
-      {/* 10-Band Equalizer */}
-      <div className="p-6 rounded-2xl bg-white/[0.03] border border-white/[0.07] space-y-5">
-        <div className="flex items-center justify-between">
+      {/* 10-Band Parametric Equalizer */}
+      <div className="p-6 rounded-[24px] surface-bento space-y-5">
+        <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-2.5">
             <Sliders
               className="w-4 h-4"
               style={{ color: 'var(--theme-accent)' }}
             />
-            <h3 className="text-[15px] font-semibold text-white">
-              均衡器 (Equalizer)
+            <h3 className="text-[16px] font-bold text-white">
+              Audio Vivid 10 段参量均衡器
             </h3>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2 flex-wrap">
             {(
               [
                 { id: 'harman', label: 'Harman 曲线' },
-                { id: 'flat', label: '原音直出' },
-                { id: 'vocal', label: '人声清澈' },
-                { id: 'bass', label: '低频增强' },
+                { id: 'flat', label: '原音直通' },
+                { id: 'vocal', label: '清澈人声' },
+                { id: 'bass', label: '超重低音' },
               ] as const
             ).map((preset) => (
               <button
@@ -230,10 +252,10 @@ export const SettingsView: React.FC = () => {
                     ? { backgroundColor: 'var(--theme-accent)' }
                     : undefined
                 }
-                className={`px-3 py-1 rounded-full text-[12px] font-medium cursor-pointer transition-colors ${
+                className={`px-3.5 py-1 rounded-full text-[12px] font-medium cursor-pointer transition-colors ${
                   eqPreset === preset.id
-                    ? '!text-white'
-                    : 'bg-white/[0.06] text-white/60 hover:text-white'
+                    ? '!text-white shadow-xs'
+                    : 'bg-white/[0.06] text-white/65 hover:text-white border border-white/[0.07]'
                 }`}
               >
                 {preset.label}
@@ -242,14 +264,14 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-10 gap-2.5 pt-2">
+        <div className="grid grid-cols-5 sm:grid-cols-10 gap-2.5 pt-2">
           {eqBands.map((band) => (
             <div
               key={band.freqHz}
-              className="flex flex-col items-center p-3 rounded-xl bg-black/25 border border-white/[0.05]"
+              className="flex flex-col items-center p-3 rounded-[16px] bg-white/[0.04] border border-white/[0.06]"
             >
-              <span className="text-[11px] font-mono-tabular text-white/75 mb-2">
-                {band.gainDb >= 0 ? `+${band.gainDb}` : band.gainDb}
+              <span className="text-[11px] font-mono-tabular text-white/80 mb-2">
+                {band.gainDb >= 0 ? `+${band.gainDb}` : band.gainDb}dB
               </span>
               <input
                 type="range"
@@ -263,7 +285,7 @@ export const SettingsView: React.FC = () => {
                 style={{ accentColor: 'var(--theme-accent)' }}
                 className="w-full cursor-pointer"
               />
-              <span className="text-[11px] font-mono-tabular text-white/45 mt-2">
+              <span className="text-[10.5px] font-mono-tabular text-white/50 mt-2">
                 {band.label}
               </span>
             </div>
@@ -272,40 +294,43 @@ export const SettingsView: React.FC = () => {
       </div>
 
       {/* Reversible Merge Decisions */}
-      <div className="p-6 rounded-2xl bg-white/[0.03] border border-white/[0.07] space-y-4">
-        <div>
-          <h3 className="text-[15px] font-semibold text-white">
-            跨平台同名歌曲合并记录
-          </h3>
-          <p className="text-[12px] text-white/50 mt-0.5">
-            不同音源的同一首歌会自动合并为一条记录，您可以随时拆分还原
-          </p>
+      <div className="p-6 rounded-[24px] surface-bento space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-[16px] font-bold text-white">
+              跨平台同名歌曲合并记录
+            </h3>
+            <p className="text-[12px] text-white/50 mt-0.5">
+              不同平台的同名曲目已自动合并挂载，您可随时拆分还原。
+            </p>
+          </div>
+          <span className="badge-lossless">可逆合并</span>
         </div>
         <div className="space-y-2.5">
           {mergeAudits.map((audit) => (
             <div
               key={audit.id}
-              className="p-3.5 rounded-xl bg-black/25 border border-white/[0.05] flex items-center justify-between gap-4"
+              className="p-3.5 rounded-[16px] bg-white/[0.04] border border-white/[0.06] flex items-center justify-between gap-4"
             >
               <div>
-                <div className="flex items-center gap-2 text-[13px] text-white font-medium">
+                <div className="flex items-center gap-2 text-[13.5px] text-white font-medium">
                   <span>{audit.winnerTitle}</span>
                   <span className="text-white/35">←</span>
                   <span className="text-white/70">{audit.loserTitle}</span>
                 </div>
-                <div className="text-[11px] text-white/40 mt-1">
+                <div className="text-[11px] text-white/45 mt-1">
                   {audit.createdAt}
                 </div>
               </div>
 
               {audit.revoked ? (
-                <span className="text-xs text-white/40 px-3 py-1 rounded-full bg-white/[0.04]">
+                <span className="text-xs text-white/45 px-3 py-1 rounded-full bg-white/[0.05]">
                   已拆分还原
                 </span>
               ) : (
                 <button
                   onClick={() => revokeMergeDecision(audit.id)}
-                  className="px-3.5 py-1.5 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-xs text-white cursor-pointer"
+                  className="h-8 px-4 rounded-full bg-white/[0.07] hover:bg-white/[0.13] border border-white/[0.07] text-xs font-medium text-white cursor-pointer transition-colors"
                 >
                   拆分曲目
                 </button>
@@ -317,4 +342,3 @@ export const SettingsView: React.FC = () => {
     </div>
   );
 };
-

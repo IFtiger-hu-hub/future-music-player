@@ -41,7 +41,6 @@ export const HuaweiAuthModal: React.FC = () => {
     setIsLoading(false);
   }, [isOpen]);
 
-  // Listen for Tauri native WebView callback events when running inside Tauri desktop shell
   useEffect(() => {
     let unlistenSuccess: (() => void) | undefined;
     let unlistenError: (() => void) | undefined;
@@ -74,7 +73,6 @@ export const HuaweiAuthModal: React.FC = () => {
     };
   }, [completeHuaweiReauth, pushToast, triggerHuaweiSync]);
 
-  // Poll session status every 800ms while waiting for QR scan so completion is detected immediately
   useEffect(() => {
     if (!isOpen || !isLoading) return;
     let cancelled = false;
@@ -83,7 +81,6 @@ export const HuaweiAuthModal: React.FC = () => {
       if (cancelled || !st?.loggedIn) return;
       const uid = st.snsUserID || st.snsUserId;
       if (!uid) return;
-      // If a new expireTime appeared or there was no baseline session before
       if (!baselineExpireTime || (st.expireTime && st.expireTime !== baselineExpireTime)) {
         cancelled = true;
         setIsLoading(false);
@@ -99,14 +96,12 @@ export const HuaweiAuthModal: React.FC = () => {
     };
   }, [isOpen, isLoading, baselineExpireTime, completeHuaweiReauth, pushToast, triggerHuaweiSync]);
 
-  // Primary Action: Launch real Huawei login popup window
   const handleLaunchHuaweiPopup = async () => {
     const before = await musicGateway.fetchHuaweiStatus();
     setBaselineExpireTime(before?.expireTime || null);
     setIsLoading(true);
     setStatusText('正在唤起华为官方扫码窗口，请在弹出的窗口中扫码或输入账号登录...');
 
-    // If running inside Tauri desktop app, open controlled WebView window directly
     if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
       try {
         await invoke<string>('start_huawei_webview_login');
@@ -138,7 +133,6 @@ export const HuaweiAuthModal: React.FC = () => {
     }
   };
 
-  // Manual callback paste fallback
   const handleExchangeManualCallback = async () => {
     const trimmed = callbackInput.trim();
     if (!trimmed.startsWith('hms://redirect_uri')) {
@@ -168,7 +162,7 @@ export const HuaweiAuthModal: React.FC = () => {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={() => !isLoading && setOpen(false)}
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-center justify-center p-4 select-none"
+          className="fixed inset-0 z-50 bg-black/45 backdrop-blur-md flex items-center justify-center p-4 select-none"
         >
           <motion.div
             initial={{ scale: 0.95, opacity: 0, y: 10 }}
@@ -176,9 +170,8 @@ export const HuaweiAuthModal: React.FC = () => {
             exit={{ scale: 0.95, opacity: 0, y: 10 }}
             transition={{ type: 'spring', stiffness: 420, damping: 32 }}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-[440px] rounded-[22px] bg-[#1C1C1E]/95 backdrop-blur-2xl border border-white/[0.1] shadow-[0_28px_90px_rgba(0,0,0,0.75)] overflow-hidden"
+            className="w-full max-w-[430px] rounded-[28px] theme-modal backdrop-blur-2xl border overflow-hidden"
           >
-            {/* Close Button */}
             <div className="flex justify-end px-5 pt-4">
               <button
                 onClick={() => setOpen(false)}
@@ -188,47 +181,43 @@ export const HuaweiAuthModal: React.FC = () => {
               </button>
             </div>
 
-            {/* Apple Music Style Centered Sheet Content */}
             <div className="px-8 pb-7 pt-1 text-center">
-              <div className="w-16 h-16 rounded-[18px] bg-gradient-to-br from-[#FA2D48] to-[#C7000B] mx-auto flex items-center justify-center shadow-[0_12px_30px_rgba(250,45,72,0.35)]">
-                <QrCode className="w-8 h-8 text-white" />
+              <div className="w-16 h-16 rounded-[20px] bg-gradient-to-br from-[#FA2D48] to-[#C7000B] mx-auto flex items-center justify-center shadow-[0_12px_30px_rgba(250,45,72,0.3)]">
+                <QrCode className="w-8 h-8 !text-white" />
               </div>
 
               <h3 className="text-[20px] font-bold text-white mt-5 tracking-tight">
-                连接华为音乐账号
+                华为账号扫码登录
               </h3>
-              <p className="text-[13px] text-white/55 mt-2 leading-relaxed">
-                扫码登录后自动同步您在华为音乐中的「我喜欢」收藏、自建歌单与无损曲库。
+              <p className="text-[13px] text-white/60 mt-2 leading-relaxed">
+                使用华为手机或华为音乐 App 扫码授权，自动同步您的「我喜欢」收藏、自建歌单与 SQ/Hi-Res 无损曲库。
               </p>
 
-              {/* Primary CTA Button */}
               <button
                 onClick={handleLaunchHuaweiPopup}
                 disabled={isLoading}
-                className="w-full mt-6 py-3 px-5 rounded-xl bg-[#FA2D48] hover:bg-[#FF3B56] disabled:opacity-60 text-[14px] font-semibold text-white shadow-[0_8px_24px_rgba(250,45,72,0.35)] transition-all flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full mt-6 py-3 px-5 rounded-full bg-[#FA2D48] hover:bg-[#FF3B56] disabled:opacity-60 text-[14px] font-semibold !text-white shadow-[0_8px_24px_rgba(250,45,72,0.3)] transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 {isLoading ? (
                   <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>等待扫码授权完成...</span>
+                    <RefreshCw className="w-4 h-4 animate-spin !text-white" />
+                    <span className="!text-white">等待扫码授权完成...</span>
                   </>
                 ) : (
-                  <span>打开华为官方扫码窗口</span>
+                  <span className="!text-white">打开华为官方扫码窗口</span>
                 )}
               </button>
 
-              {/* Status Feedback */}
               {statusText && (
-                <div className="mt-4 p-3 rounded-xl bg-white/[0.05] border border-white/[0.08] text-[12px] text-white/80 leading-relaxed text-left">
+                <div className="mt-4 p-3 rounded-2xl bg-white/[0.05] border border-white/[0.08] text-[12px] text-white/80 leading-relaxed text-left">
                   {statusText}
                 </div>
               )}
 
-              {/* Collapsible Manual Callback Option */}
               <div className="mt-5 pt-4 border-t border-white/[0.07]">
                 <button
                   onClick={() => setShowAdvanced(!showAdvanced)}
-                  className="text-[12px] text-white/45 hover:text-white/75 flex items-center justify-center gap-1 mx-auto cursor-pointer"
+                  className="text-[12px] text-white/50 hover:text-white/80 flex items-center justify-center gap-1 mx-auto cursor-pointer"
                 >
                   <span>手动粘贴回调地址</span>
                   {showAdvanced ? (
@@ -244,12 +233,12 @@ export const HuaweiAuthModal: React.FC = () => {
                       value={callbackInput}
                       onChange={(e) => setCallbackInput(e.target.value)}
                       placeholder="hms://redirect_uri?code=..."
-                      className="flex-1 px-3 py-2 rounded-lg bg-black/40 border border-white/[0.1] text-[12px] text-white placeholder-white/30 focus:outline-none focus:border-[#FA2D48]"
+                      className="flex-1 px-3.5 py-2 rounded-full bg-white/[0.06] border border-white/[0.1] text-[12px] text-white placeholder-white/35 focus:outline-none focus:border-[#FA2D48]"
                     />
                     <button
                       onClick={handleExchangeManualCallback}
                       disabled={isLoading || !callbackInput.trim()}
-                      className="px-3 py-2 rounded-lg bg-white/[0.1] hover:bg-white/[0.16] disabled:opacity-40 text-[12px] font-medium text-white shrink-0 cursor-pointer"
+                      className="px-4 py-2 rounded-full bg-[#FA2D48] disabled:opacity-40 text-[12px] font-medium !text-white shrink-0 cursor-pointer"
                     >
                       验证
                     </button>
@@ -257,8 +246,8 @@ export const HuaweiAuthModal: React.FC = () => {
                 )}
               </div>
 
-              <div className="mt-4 flex items-center justify-center gap-1.5 text-[11px] text-white/35">
-                <ShieldCheck className="w-3.5 h-3.5 text-emerald-400/80" />
+              <div className="mt-4 flex items-center justify-center gap-1.5 text-[11px] text-white/45">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
                 <span>凭据仅加密保存在本机，退出账号不会删除本地收藏</span>
               </div>
             </div>
@@ -285,7 +274,7 @@ export const ImportAssetsModal: React.FC = () => {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={() => setOpen(false)}
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-center justify-center p-4 select-none"
+          className="fixed inset-0 z-50 bg-black/45 backdrop-blur-md flex items-center justify-center p-4 select-none"
         >
           <motion.div
             initial={{ scale: 0.95, opacity: 0, y: 10 }}
@@ -293,10 +282,10 @@ export const ImportAssetsModal: React.FC = () => {
             exit={{ scale: 0.95, opacity: 0, y: 10 }}
             transition={{ type: 'spring', stiffness: 420, damping: 32 }}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-[480px] rounded-[22px] bg-[#1C1C1E]/95 backdrop-blur-2xl border border-white/[0.1] shadow-[0_28px_90px_rgba(0,0,0,0.75)] overflow-hidden"
+            className="w-full max-w-[480px] rounded-[28px] theme-modal backdrop-blur-2xl border overflow-hidden"
           >
             <div className="px-6 py-4 border-b border-white/[0.07] flex items-center justify-between">
-              <h3 className="text-[15px] font-semibold text-white">同步与导入音乐资料库</h3>
+              <h3 className="text-[16px] font-bold text-white">同步与导入音乐资料库</h3>
               <button
                 onClick={() => setOpen(false)}
                 className="w-7 h-7 rounded-full bg-white/[0.08] hover:bg-white/[0.15] flex items-center justify-center text-white/60 hover:text-white cursor-pointer"
@@ -305,22 +294,22 @@ export const ImportAssetsModal: React.FC = () => {
               </button>
             </div>
 
-            <div className="p-6 space-y-2.5">
+            <div className="p-6 space-y-3">
               {sources.map((src) => (
                 <div
                   key={src.id}
-                  className="p-3.5 rounded-xl bg-white/[0.04] border border-white/[0.06] flex items-center justify-between gap-4"
+                  className="p-3.5 rounded-[18px] bg-white/[0.04] border border-white/[0.06] flex items-center justify-between gap-4"
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <span
-                      className="w-8 h-8 rounded-lg flex items-center justify-center font-semibold text-xs text-white shrink-0"
+                      className="w-9 h-9 rounded-[12px] flex items-center justify-center font-bold text-xs !text-white shrink-0"
                       style={{ backgroundColor: src.accent }}
                     >
                       {src.shortName}
                     </span>
                     <div className="min-w-0">
-                      <div className="text-[13px] font-medium text-white">{src.name}</div>
-                      <div className="text-[11px] text-white/45 truncate mt-0.5">
+                      <div className="text-[13.5px] font-semibold text-white">{src.name}</div>
+                      <div className="text-[11px] text-white/50 truncate mt-0.5">
                         {src.accountName}
                       </div>
                     </div>
@@ -332,7 +321,7 @@ export const ImportAssetsModal: React.FC = () => {
                         scanLocalFolder();
                         setOpen(false);
                       }}
-                      className="px-3 py-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.14] text-white text-xs font-medium shrink-0 cursor-pointer flex items-center gap-1.5"
+                      className="px-3.5 py-1.5 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-white text-xs font-medium shrink-0 cursor-pointer flex items-center gap-1.5"
                     >
                       <HardDrive className="w-3.5 h-3.5" />
                       <span>扫描目录</span>
@@ -343,7 +332,7 @@ export const ImportAssetsModal: React.FC = () => {
                         triggerHuaweiSync();
                         setOpen(false);
                       }}
-                      className="px-3 py-1.5 rounded-lg bg-white/[0.08] hover:bg-white/[0.14] text-white text-xs font-medium shrink-0 cursor-pointer"
+                      className="px-3.5 py-1.5 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-white text-xs font-medium shrink-0 cursor-pointer"
                     >
                       立即同步
                     </button>
@@ -353,7 +342,7 @@ export const ImportAssetsModal: React.FC = () => {
                         setOpen(false);
                         toggleSourceLogin(src.id);
                       }}
-                      className="px-3 py-1.5 rounded-lg bg-[#FA2D48] hover:bg-[#FF3B56] text-white text-xs font-medium shrink-0 cursor-pointer"
+                      className="px-3.5 py-1.5 rounded-full bg-[#FA2D48] hover:bg-[#FF3B56] !text-white text-xs font-semibold shrink-0 cursor-pointer"
                     >
                       连接账号
                     </button>
@@ -390,7 +379,7 @@ export const CommandPaletteModal: React.FC = () => {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={() => setOpen(false)}
-          className="fixed inset-0 z-50 bg-black/55 backdrop-blur-sm flex items-start justify-center pt-24 p-4"
+          className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-start justify-center pt-24 p-4"
         >
           <motion.div
             initial={{ scale: 0.96, opacity: 0, y: -8 }}
@@ -398,23 +387,23 @@ export const CommandPaletteModal: React.FC = () => {
             exit={{ scale: 0.96, opacity: 0, y: -8 }}
             transition={{ type: 'spring', stiffness: 420, damping: 32 }}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-xl rounded-[20px] bg-[#1C1C1E]/95 backdrop-blur-2xl border border-white/[0.12] shadow-2xl overflow-hidden"
+            className="w-full max-w-xl rounded-[26px] theme-modal backdrop-blur-2xl border overflow-hidden"
           >
-            <div className="px-4 py-3.5 border-b border-white/[0.07] flex items-center gap-3">
+            <div className="px-5 py-3.5 border-b border-white/[0.07] flex items-center gap-3">
               <Search className="w-4 h-4 text-white/45" />
               <input
                 autoFocus
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="搜索歌曲、艺人或专辑..."
-                className="w-full bg-transparent text-sm text-white placeholder-white/35 focus:outline-none"
+                placeholder="搜索歌曲、歌手或专辑..."
+                className="w-full bg-transparent text-sm text-white placeholder-white/40 focus:outline-none"
               />
-              <kbd className="text-[10px] font-mono-tabular px-1.5 py-0.5 rounded bg-white/[0.07] text-white/45">
+              <kbd className="text-[10px] font-mono-tabular px-2 py-0.5 rounded-full bg-white/[0.07] text-white/50">
                 ESC
               </kbd>
             </div>
 
-            <div className="max-h-80 overflow-y-auto p-2">
+            <div className="max-h-80 overflow-y-auto p-2.5">
               {filtered.map((t) => (
                 <div
                   key={t.id}
@@ -422,24 +411,24 @@ export const CommandPaletteModal: React.FC = () => {
                     playTrack(t);
                     setOpen(false);
                   }}
-                  className="px-3 py-2.5 rounded-xl hover:bg-white/[0.07] flex items-center justify-between cursor-pointer group"
+                  className="px-3.5 py-2.5 rounded-2xl hover:bg-white/[0.07] flex items-center justify-between cursor-pointer group"
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <img
                       src={t.coverUrl}
                       alt={t.title}
-                      className="w-9 h-9 rounded-lg object-cover"
+                      className="w-9 h-9 rounded-[10px] object-cover"
                     />
                     <div className="min-w-0">
-                      <div className="text-[13px] font-medium text-white truncate">
+                      <div className="text-[13.5px] font-semibold text-white truncate">
                         {t.title}
                       </div>
-                      <div className="text-[11px] text-white/50 truncate">
-                        {t.artists.join(' · ')} — {t.album}
+                      <div className="text-[11.5px] text-white/50 truncate">
+                        {t.artists.join(' / ')} — {t.album}
                       </div>
                     </div>
                   </div>
-                  <Play className="w-4 h-4 text-white/35 group-hover:text-white ml-2 fill-current" />
+                  <Play className="w-4 h-4 text-white/40 group-hover:text-[#FA2D48] ml-2 fill-current" />
                 </div>
               ))}
             </div>

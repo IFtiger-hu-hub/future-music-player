@@ -1,32 +1,27 @@
 import React from 'react';
-import { motion } from 'motion/react';
-import { Play, Pause, Heart, Volume2 } from 'lucide-react';
+import { Play, Heart } from 'lucide-react';
 import { CanonicalTrack, SourceId } from '../types/music';
 import { usePlayerStore } from '../store/usePlayerStore';
 
-const SOURCE_NAMES: Record<SourceId, { short: string; full: string }> = {
-  huawei: { short: '华为', full: '华为音乐无损' },
-  local: { short: '本地', full: '本地音频文件' },
-  netease: { short: '网易', full: '网易云音乐' },
-  qq: { short: 'QQ', full: 'QQ 音乐' },
-  navidrome: { short: '私有云', full: '私有云 Subsonic' },
+const SOURCE_LABELS: Record<SourceId, string> = {
+  huawei: '华为',
+  local: '本地',
+  netease: '网易',
+  qq: 'QQ',
+  navidrome: '云端',
 };
 
 export function formatDuration(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${String(s).padStart(2, '0')}`;
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
 interface TrackTableProps {
   tracks: CanonicalTrack[];
-  emptyMessage?: string;
 }
 
-export const TrackTable: React.FC<TrackTableProps> = ({
-  tracks,
-  emptyMessage = '暂无曲目',
-}) => {
+export const TrackTable: React.FC<TrackTableProps> = ({ tracks }) => {
   const currentTrack = usePlayerStore((s) => s.currentTrack);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
   const activeSourceForPlayback = usePlayerStore((s) => s.activeSourceForPlayback);
@@ -36,169 +31,189 @@ export const TrackTable: React.FC<TrackTableProps> = ({
 
   if (tracks.length === 0) {
     return (
-      <div className="py-20 text-center">
-        <p className="text-[14px] text-white/45">{emptyMessage}</p>
+      <div className="py-16 text-center rounded-[22px] surface-bento">
+        <p className="text-[14px] font-medium text-white/60">
+          当前分类下暂无歌曲
+        </p>
+        <p className="text-[12px] text-white/40 mt-1">
+          可切换顶部音源胶囊或扫码同步华为音乐云端曲库
+        </p>
       </div>
     );
   }
 
   return (
     <div className="w-full select-none">
-      {/* Subtle Apple Music Column Header */}
-      <div className="grid grid-cols-[36px_1.8fr_1.1fr_1fr_72px] items-center px-3 pb-2 border-b border-white/[0.06] text-[11px] font-medium text-white/35">
-        <span className="text-center">#</span>
-        <span>歌曲</span>
-        <span>专辑</span>
-        <span>可用音源</span>
-        <span className="text-right pr-1">时长</span>
+      {/* HarmonyOS Clean Chinese Column Headers */}
+      <div className="grid grid-cols-[44px_2.1fr_1.15fr_140px_76px] gap-4 px-4 py-2.5 text-[12px] font-medium text-white/45 border-b border-white/[0.06]">
+        <div className="text-center">序号</div>
+        <div>歌曲 / 歌手</div>
+        <div>专辑</div>
+        <div>音源切换</div>
+        <div className="text-right pr-1">时长</div>
       </div>
 
-      {/* Clean Track List */}
-      <div className="mt-1 space-y-0.5">
-        {tracks.map((track, idx) => {
+      {/* Track Rows */}
+      <div className="divide-y divide-white/[0.03] mt-1">
+        {tracks.map((track, index) => {
           const isCurrent = currentTrack.id === track.id;
+          const hasLossless = track.bindings.some(
+            (b) => b.quality === 'hires' || b.quality === 'lossless'
+          );
 
           return (
-            <motion.div
+            <div
               key={track.id}
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{
-                duration: 0.18,
-                delay: Math.min(idx * 0.015, 0.2),
-              }}
               onDoubleClick={() => playTrack(track)}
-              className={`grid grid-cols-[36px_1.8fr_1.1fr_1fr_72px] items-center px-3 py-2 rounded-xl transition-colors group ${
+              className={`group grid grid-cols-[44px_2.1fr_1.15fr_140px_76px] gap-4 items-center px-4 py-2.5 rounded-[14px] transition-colors duration-150 cursor-pointer ${
                 isCurrent
-                  ? 'bg-white/[0.09]'
-                  : 'hover:bg-white/[0.045] odd:bg-white/[0.012]'
+                  ? 'bg-[#FA2D48]/[0.08]'
+                  : 'hover:bg-white/[0.045]'
               }`}
             >
-              {/* Track Index / Play */}
+              {/* Index / Play Button / Animated Equalizer Bars */}
               <div className="flex items-center justify-center">
-                <button
-                  onClick={() => (isCurrent ? togglePlay() : playTrack(track))}
-                  className="w-6 h-6 flex items-center justify-center text-white/35 group-hover:text-white transition-colors cursor-pointer"
-                >
-                  {isCurrent && isPlaying ? (
-                    <Volume2
-                      className="w-3.5 h-3.5"
-                      style={{ color: 'var(--theme-accent)' }}
+                {isCurrent && isPlaying ? (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      togglePlay();
+                    }}
+                    className="flex items-end gap-[2.5px] h-3.5 cursor-pointer"
+                  >
+                    <span
+                      className="w-[2.5px] h-3.5 rounded-full animate-pulse"
+                      style={{ backgroundColor: 'var(--theme-accent)' }}
                     />
-                  ) : isCurrent ? (
-                    <Play
-                      className="w-3.5 h-3.5 fill-current"
-                      style={{ color: 'var(--theme-accent)' }}
+                    <span
+                      className="w-[2.5px] h-2 rounded-full animate-pulse [animation-delay:150ms]"
+                      style={{ backgroundColor: 'var(--theme-accent)' }}
                     />
-                  ) : (
-                    <>
-                      <span className="font-mono-tabular text-[12px] group-hover:hidden">
-                        {idx + 1}
-                      </span>
-                      <Play className="w-3.5 h-3.5 hidden group-hover:block text-white fill-current" />
-                    </>
-                  )}
-                </button>
+                    <span
+                      className="w-[2.5px] h-3 rounded-full animate-pulse [animation-delay:300ms]"
+                      style={{ backgroundColor: 'var(--theme-accent)' }}
+                    />
+                  </button>
+                ) : (
+                  <>
+                    <span
+                      className={`text-[12.5px] font-mono-tabular group-hover:hidden ${
+                        isCurrent ? 'font-bold' : 'text-white/40'
+                      }`}
+                      style={isCurrent ? { color: 'var(--theme-accent)' } : undefined}
+                    >
+                      {String(index + 1).padStart(2, '0')}
+                    </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (isCurrent) {
+                          togglePlay();
+                        } else {
+                          playTrack(track);
+                        }
+                      }}
+                      className="hidden group-hover:flex items-center justify-center text-white cursor-pointer"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                    </button>
+                  </>
+                )}
               </div>
 
-              {/* Cover + Title + Artist */}
-              <div className="flex items-center gap-3.5 min-w-0 pr-4">
-                <div
-                  onClick={() => (isCurrent ? togglePlay() : playTrack(track))}
-                  className="relative w-10 h-10 rounded-[7px] overflow-hidden shrink-0 shadow-sm bg-white/5 cursor-pointer"
-                >
+              {/* Artwork + Title + Huawei SQ Badge + Artist */}
+              <div
+                onClick={() => playTrack(track)}
+                className="flex items-center gap-3.5 min-w-0"
+              >
+                <div className="relative w-11 h-11 rounded-[10px] overflow-hidden shrink-0 bg-white/5 ring-1 ring-black/[0.06] shadow-xs">
                   <img
                     src={track.coverUrl}
                     alt={track.title}
+                    loading="lazy"
+                    decoding="async"
                     className="w-full h-full object-cover"
                   />
-                  {isCurrent && (
-                    <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
-                      {isPlaying ? (
-                        <Pause className="w-3.5 h-3.5 text-white fill-current" />
-                      ) : (
-                        <Play className="w-3.5 h-3.5 text-white fill-current" />
-                      )}
-                    </div>
-                  )}
                 </div>
-
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span
-                      onClick={() => playTrack(track)}
-                      style={{
-                        color: isCurrent ? 'var(--theme-accent)' : undefined,
-                      }}
-                      className={`text-[13.5px] font-medium tracking-[-0.01em] truncate cursor-pointer ${
-                        isCurrent ? '' : 'text-white/92'
+                      className={`text-[14px] font-semibold truncate ${
+                        isCurrent ? '' : 'text-white/95'
                       }`}
+                      style={isCurrent ? { color: 'var(--theme-accent)' } : undefined}
                     >
                       {track.title}
                     </span>
-                    <span className="text-[9px] font-semibold tracking-wider uppercase px-1.5 py-[1px] rounded-[4px] bg-white/[0.08] text-white/55 shrink-0">
-                      无损
-                    </span>
+                    {hasLossless && (
+                      <span className="badge-lossless shrink-0">SQ 无损</span>
+                    )}
                   </div>
-                  <div className="text-[12px] text-white/45 truncate mt-0.5">
-                    {track.artists.join('、')}
+                  <div className="text-[12px] text-white/50 truncate mt-0.5">
+                    {track.artists.join(' / ')}
                   </div>
                 </div>
               </div>
 
               {/* Album */}
-              <div className="text-[12.5px] text-white/45 truncate pr-4">
+              <div className="text-[12.5px] text-white/50 truncate pr-2">
                 {track.album}
               </div>
 
-              {/* Restrained Apple-style Source Pills */}
-              <div className="flex items-center flex-wrap gap-1 pr-2">
-                {track.bindings.map((binding) => {
-                  const meta = SOURCE_NAMES[binding.source];
-                  const isSelected =
-                    isCurrent && activeSourceForPlayback === binding.source;
-
+              {/* Multi-Source Direct Capsule Switcher */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {track.bindings.map((b) => {
+                  const isActiveSource =
+                    isCurrent && activeSourceForPlayback === b.source;
                   return (
                     <button
-                      key={`${track.id}-${binding.source}`}
-                      onClick={() => playTrack(track, binding.source)}
-                      title={`点击切换至 ${meta.full} (${binding.formatLabel})`}
-                      className={`px-2 py-0.5 rounded-md text-[11px] transition-all cursor-pointer ${
-                        isSelected
-                          ? 'bg-white/20 text-white font-medium shadow-xs'
-                          : binding.access === 'preview'
-                          ? 'bg-white/[0.03] text-white/30 hover:text-white/60'
-                          : 'bg-white/[0.05] text-white/50 hover:bg-white/[0.11] hover:text-white/90'
+                      key={b.source}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        playTrack(track, b.source);
+                      }}
+                      title={`使用 ${SOURCE_LABELS[b.source]} 播放 (${b.formatLabel})`}
+                      style={
+                        isActiveSource
+                          ? { backgroundColor: 'var(--theme-accent)' }
+                          : undefined
+                      }
+                      className={`px-2.5 py-0.5 rounded-full text-[11px] font-medium transition-colors cursor-pointer ${
+                        isActiveSource
+                          ? '!text-white shadow-xs'
+                          : 'bg-white/[0.06] text-white/60 hover:bg-white/[0.12] hover:text-white border border-white/[0.06]'
                       }`}
                     >
-                      {meta.short}
+                      {SOURCE_LABELS[b.source]}
                     </button>
                   );
                 })}
               </div>
 
-              {/* Favorite + Duration */}
+              {/* Favorite Heart + Tabular Duration */}
               <div className="flex items-center justify-end gap-3 pr-1">
                 <button
-                  onClick={() => toggleFavorite(track.id)}
-                  style={{
-                    color: track.isFavorite ? 'var(--theme-accent)' : undefined,
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleFavorite(track.id);
                   }}
                   className={`transition-opacity cursor-pointer ${
                     track.isFavorite
-                      ? 'opacity-100'
-                      : 'opacity-0 group-hover:opacity-100 text-white/35 hover:text-white/80'
+                      ? 'opacity-100 text-[#FA2D48]'
+                      : 'opacity-0 group-hover:opacity-100 text-white/40 hover:text-[#FA2D48]'
                   }`}
                 >
                   <Heart
-                    className={`w-3.5 h-3.5 ${track.isFavorite ? 'fill-current' : ''}`}
+                    className={`w-4 h-4 ${
+                      track.isFavorite ? 'fill-current' : ''
+                    }`}
                   />
                 </button>
-                <span className="font-mono-tabular text-[12px] text-white/40 w-9 text-right">
+                <span className="text-[12px] font-mono-tabular text-white/50 w-9 text-right">
                   {formatDuration(track.durationSeconds)}
                 </span>
               </div>
-            </motion.div>
+            </div>
           );
         })}
       </div>

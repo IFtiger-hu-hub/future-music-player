@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ChevronDown,
   Play,
@@ -6,6 +6,12 @@ import {
   SkipBack,
   SkipForward,
   Sliders,
+  Heart,
+  Repeat,
+  Shuffle,
+  Volume2,
+  Sparkles,
+  Disc3,
 } from 'lucide-react';
 import { usePlayerStore } from '../store/usePlayerStore';
 import { SourceId } from '../types/music';
@@ -13,30 +19,48 @@ import { formatDuration } from './TrackTable';
 
 const SOURCE_LABELS: Record<SourceId, string> = {
   huawei: '华为音乐',
-  local: '本地无损',
+  local: '本地母带',
   netease: '网易云',
   qq: 'QQ 音乐',
   navidrome: '私有云',
 };
 
 /**
- * Isolated sub-component for the active progress & lyrics clock
- * so 50ms time ticks only run when the stage is actually open.
+ * Helper to determine if a space should be inserted after a lyric word token
+ * (inserts a space between Latin words if neither token already contains whitespace).
  */
+function formatWordToken(text: string, nextText?: string): string {
+  if (!nextText) return text;
+  if (/\s$/.test(text) || /^\s/.test(nextText)) return text;
+  if (/[a-zA-Z0-9]$/.test(text) && /^[a-zA-Z0-9]/.test(nextText)) {
+    return `${text} `;
+  }
+  return text;
+}
+
 const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) => {
   const currentTrack = usePlayerStore((s) => s.currentTrack);
   const activeSourceForPlayback = usePlayerStore((s) => s.activeSourceForPlayback);
   const isPlaying = usePlayerStore((s) => s.isPlaying);
-  // Only subscribe to 50ms currentTimeMs ticks while stage is open
   const currentTimeMs = usePlayerStore((s) => (isStageOpen ? s.currentTimeMs : 0));
   const lyricOffsetMs = usePlayerStore((s) => s.lyricOffsetMs);
+  const volume = usePlayerStore((s) => s.volume);
+  const setVolume = usePlayerStore((s) => s.setVolume);
+  const isDesktopLyricOpen = usePlayerStore((s) => s.isDesktopLyricOpen);
+  const setDesktopLyricOpen = usePlayerStore((s) => s.setDesktopLyricOpen);
   const togglePlay = usePlayerStore((s) => s.togglePlay);
   const nextTrack = usePlayerStore((s) => s.nextTrack);
   const prevTrack = usePlayerStore((s) => s.prevTrack);
   const seekToMs = usePlayerStore((s) => s.seekToMs);
   const switchPlaybackSource = usePlayerStore((s) => s.switchPlaybackSource);
   const adjustLyricOffset = usePlayerStore((s) => s.adjustLyricOffset);
+  const toggleFavorite = usePlayerStore((s) => s.toggleFavorite);
   const setStageOpen = usePlayerStore((s) => s.setStageOpen);
+  const setActiveNav = usePlayerStore((s) => s.setActiveNav);
+
+  const [vinylMode, setVinylMode] = useState(true);
+  const [spatialAudioEnabled, setSpatialAudioEnabled] = useState(true);
+  const [playMode, setPlayMode] = useState<'sequence' | 'shuffle' | 'repeat'>('sequence');
 
   const effectiveTimeMs = Math.max(0, currentTimeMs + lyricOffsetMs);
   const totalMs = Math.max(1000, currentTrack.durationSeconds * 1000);
@@ -74,36 +98,60 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
 
   return (
     <>
-      {/* Pure GPU-Composited Ambient Background (Zero expensive per-frame backdrop-blur) */}
+      {/* HarmonyOS NEXT Dynamic Optical Background (GPU-composited) */}
       <div
         className="absolute inset-0 pointer-events-none overflow-hidden"
         style={{
           contain: 'strict',
-          background: `radial-gradient(circle at 22% 28%, ${c1}cc 0%, transparent 58%), radial-gradient(circle at 78% 75%, ${c2}b3 0%, transparent 62%), linear-gradient(160deg, #141418 0%, ${c3} 100%)`,
+          background: `radial-gradient(circle at 24% 32%, ${c1}d9 0%, transparent 56%), radial-gradient(circle at 76% 72%, ${c2}bf 0%, transparent 60%), linear-gradient(155deg, #16171D 0%, ${c3} 100%)`,
         }}
       >
         <img
           src={currentTrack.coverUrl}
           alt=""
           decoding="async"
-          className="w-full h-full object-cover opacity-20 scale-110 blur-2xl"
+          className="w-full h-full object-cover opacity-25 scale-110 blur-2xl"
           style={{ transform: 'translateZ(0) scale(1.12)' }}
         />
-        <div className="absolute inset-0 bg-black/50" />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-black/45 to-black/70" />
       </div>
 
-      {/* Top Controls Bar */}
-      <div className="relative z-10 px-10 pt-7 flex items-center justify-between">
-        <button
-          onClick={() => setStageOpen(false)}
-          className="w-9 h-9 rounded-full bg-white/[0.1] hover:bg-white/[0.18] flex items-center justify-center text-white/80 hover:text-white transition-colors cursor-pointer"
-          title="收起歌词视图 (ESC)"
-        >
-          <ChevronDown className="w-5 h-5" />
-        </button>
+      {/* 1. HarmonyOS Top Navigation Bar (PlayerNav) */}
+      <div className="relative z-10 px-8 xl:px-14 pt-6 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setStageOpen(false)}
+            className="w-9 h-9 rounded-full bg-white/[0.1] hover:bg-white/[0.18] border border-white/[0.1] flex items-center justify-center !text-white/85 hover:!text-white transition-colors cursor-pointer"
+            title="收起播放页 (ESC)"
+          >
+            <ChevronDown className="w-5 h-5" />
+          </button>
 
-        {/* Seamless Source Switcher Pill */}
-        <div className="flex items-center gap-1 bg-black/40 border border-white/[0.08] p-1 rounded-full">
+          {/* Toggle Vinyl / Cover Mode */}
+          <button
+            onClick={() => setVinylMode((v) => !v)}
+            className="h-8 px-3.5 rounded-full bg-white/[0.08] hover:bg-white/[0.15] border border-white/[0.1] text-[11.5px] font-medium !text-white/85 flex items-center gap-1.5 transition-colors cursor-pointer"
+          >
+            <Disc3 className="w-3.5 h-3.5" />
+            <span>{vinylMode ? '黑胶唱盘' : '高清画幅'}</span>
+          </button>
+
+          {/* HarmonyOS Audio Vivid Spatial Audio Pill */}
+          <button
+            onClick={() => setSpatialAudioEnabled((v) => !v)}
+            className={`h-8 px-3.5 rounded-full border text-[11.5px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+              spatialAudioEnabled
+                ? 'bg-gradient-to-r from-[#F5D08A]/25 to-[#E5A93C]/25 border-[#F5D08A]/50 !text-[#FCE3B4] shadow-[0_0_20px_rgba(245,208,138,0.18)]'
+                : 'bg-white/[0.06] border-white/[0.1] !text-white/60'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Audio Vivid 菁彩声</span>
+          </button>
+        </div>
+
+        {/* Center Multi-Source Lossless Switcher Capsule */}
+        <div className="flex items-center gap-1 bg-black/35 border border-white/[0.1] p-1 rounded-full">
           {currentTrack.bindings.map((b) => {
             const isSelected = activeSourceForPlayback === b.source;
             return (
@@ -112,75 +160,203 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
                 onClick={() => switchPlaybackSource(b.source)}
                 className={`relative px-3.5 py-1 rounded-full text-[12px] font-medium transition-colors cursor-pointer ${
                   isSelected
-                    ? 'bg-white/[0.18] !text-white shadow-xs'
-                    : 'text-white/55 hover:text-white/85'
+                    ? 'bg-white/[0.2] !text-white shadow-xs'
+                    : '!text-white/55 hover:!text-white/90'
                 }`}
               >
-                <span className="relative z-10 flex items-center gap-1.5">
+                <span className="flex items-center gap-1.5">
                   <span>{SOURCE_LABELS[b.source]}</span>
-                  <span className="text-[10px] opacity-65">{b.formatLabel}</span>
+                  <span className="text-[10px] font-mono-tabular px-1.5 py-0.2 rounded bg-white/10 !text-[#FCE3B4]">
+                    {b.formatLabel}
+                  </span>
                 </span>
               </button>
             );
           })}
         </div>
 
-        {/* Subtle Lyric Offset Calibration */}
-        <div className="flex items-center gap-2 bg-black/35 border border-white/[0.08] px-3 py-1.5 rounded-full text-[11px] font-mono-tabular text-white/70">
-          <Sliders className="w-3 h-3 text-white/60" />
-          <span>
-            词轴 {lyricOffsetMs >= 0 ? `+${lyricOffsetMs}` : lyricOffsetMs}ms
-          </span>
+        {/* Right Lyric Offset Calibration & Desktop Lyric Toggle */}
+        <div className="flex items-center gap-2.5">
+          <div className="hidden sm:flex items-center gap-1.5 bg-black/35 border border-white/[0.1] px-3 py-1.5 rounded-full text-[11px] font-mono-tabular !text-white/75">
+            <Sliders className="w-3 h-3 !text-white/60" />
+            <span>
+              词轴 {lyricOffsetMs >= 0 ? `+${lyricOffsetMs}` : lyricOffsetMs}ms
+            </span>
+            <button
+              onClick={() => adjustLyricOffset(-200)}
+              className="px-1.5 py-0.5 rounded-full hover:bg-white/15 !text-white/85 cursor-pointer"
+            >
+              -0.2s
+            </button>
+            <button
+              onClick={() => adjustLyricOffset(200)}
+              className="px-1.5 py-0.5 rounded-full hover:bg-white/15 !text-white/85 cursor-pointer"
+            >
+              +0.2s
+            </button>
+          </div>
+
           <button
-            onClick={() => adjustLyricOffset(-200)}
-            className="px-1.5 py-0.5 rounded-full hover:bg-white/15 text-white/80 cursor-pointer"
+            onClick={() => setDesktopLyricOpen(!isDesktopLyricOpen)}
+            className={`h-8 px-3.5 rounded-full border text-[11.5px] font-semibold transition-colors cursor-pointer ${
+              isDesktopLyricOpen
+                ? 'bg-[#FA2D48] border-[#FA2D48] !text-white'
+                : 'bg-black/35 border-white/[0.1] !text-white/75 hover:!text-white'
+            }`}
           >
-            -0.2s
-          </button>
-          <button
-            onClick={() => adjustLyricOffset(200)}
-            className="px-1.5 py-0.5 rounded-full hover:bg-white/15 text-white/80 cursor-pointer"
-          >
-            +0.2s
+            桌面歌词
           </button>
         </div>
       </div>
 
-      {/* Center Apple Music Split Stage */}
-      <div className="relative z-10 flex-1 grid grid-cols-1 lg:grid-cols-[400px_1fr] gap-14 items-center px-12 xl:px-20 max-w-[1340px] w-full mx-auto overflow-hidden">
-        {/* Left Column: Breathing Album Artwork + Scrubber & Transport */}
-        <div className="flex flex-col items-center lg:items-start">
+      {/* 2. HarmonyOS PC Split Stage: Left Vinyl & Control Matrix + Right Fluid Lyrics */}
+      <div className="relative z-10 flex-1 grid grid-cols-1 lg:grid-cols-[440px_1fr] gap-12 xl:gap-16 items-center px-10 xl:px-20 max-w-[1380px] w-full mx-auto overflow-hidden">
+        {/* Left Column: HarmonyOS NEXT Vinyl Turntable + 3-Tier Control Matrix */}
+        <div className="flex flex-col items-center">
+          {/* Turntable / Cover Display Area */}
           <div
-            className={`w-[310px] h-[310px] xl:w-[360px] xl:h-[360px] rounded-[22px] overflow-hidden shadow-[0_28px_70px_rgba(0,0,0,0.65)] ring-1 ring-white/15 transition-transform duration-500 ease-out ${
-              isPlaying ? 'scale-100' : 'scale-[0.92]'
-            }`}
-            style={{ willChange: 'transform' }}
+            onClick={() => setVinylMode((v) => !v)}
+            className="relative flex items-center justify-center cursor-pointer pt-4 pb-2"
+            title="点击切换黑胶唱盘 / 高清方形封面"
           >
-            <img
-              src={currentTrack.coverUrl}
-              alt={currentTrack.title}
-              decoding="async"
-              className="w-full h-full object-cover"
-            />
+            {vinylMode ? (
+              <div className="relative w-[300px] h-[300px] xl:w-[336px] xl:h-[336px] flex items-center justify-center">
+                {/* Audio Vivid Spatial Halo Ring */}
+                {spatialAudioEnabled && (
+                  <div
+                    className={`absolute -inset-3 rounded-full border border-[#F5D08A]/25 transition-opacity duration-500 ${
+                      isPlaying ? 'opacity-100 scale-100' : 'opacity-30 scale-95'
+                    }`}
+                    style={{
+                      boxShadow: '0 0 50px rgba(245, 208, 138, 0.14)',
+                    }}
+                  />
+                )}
+
+                {/* HarmonyOS Metallic Stylus Tonearm (唱臂与唱针物理起落动效) */}
+                <div
+                  style={{
+                    transformOrigin: '78% 18%',
+                    transform: isPlaying ? 'rotate(2deg)' : 'rotate(-26deg)',
+                    transition: 'transform 520ms cubic-bezier(0.22, 1, 0.36, 1)',
+                  }}
+                  className="absolute -top-5 right-3 z-30 w-28 h-40 pointer-events-none"
+                >
+                  {/* Tonearm Pivot Base */}
+                  <div className="absolute top-2 right-3 w-9 h-9 rounded-full bg-gradient-to-b from-white/35 to-white/10 border border-white/30 shadow-lg flex items-center justify-center">
+                    <div className="w-3.5 h-3.5 rounded-full bg-[#1C1C20] border border-white/40" />
+                  </div>
+                  {/* Metallic Arm SVG */}
+                  <svg
+                    viewBox="0 0 110 150"
+                    className="w-full h-full drop-shadow-[0_8px_16px_rgba(0,0,0,0.65)]"
+                  >
+                    <path
+                      d="M 84 26 L 66 96 L 38 128"
+                      fill="none"
+                      stroke="url(#tonearmGrad)"
+                      strokeWidth="5.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    <rect
+                      x="28"
+                      y="120"
+                      width="16"
+                      height="10"
+                      rx="3"
+                      transform="rotate(-38 36 125)"
+                      fill="#E5E7EB"
+                    />
+                    <defs>
+                      <linearGradient id="tonearmGrad" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0%" stopColor="#F3F4F6" />
+                        <stop offset="50%" stopColor="#9CA3AF" />
+                        <stop offset="100%" stopColor="#D1D5DB" />
+                      </linearGradient>
+                    </defs>
+                  </svg>
+                </div>
+
+                {/* Outer Vinyl Platter with Concentric Grooves & Specular Sheen */}
+                <div
+                  style={{
+                    animationPlayState: isPlaying ? 'running' : 'paused',
+                    background:
+                      'conic-gradient(from 35deg, #111114 0deg, #27272E 42deg, #111114 90deg, #1F1F25 180deg, #292932 225deg, #111114 275deg, #1E1E24 360deg)',
+                  }}
+                  className="w-full h-full rounded-full p-[46px] xl:p-[52px] shadow-[0_28px_70px_rgba(0,0,0,0.75)] ring-4 ring-white/10 relative flex items-center justify-center animate-[spin_24s_linear_infinite]"
+                >
+                  {/* Vinyl Groove Rings */}
+                  <div className="absolute inset-4 rounded-full border border-white/[0.06] pointer-events-none" />
+                  <div className="absolute inset-8 rounded-full border border-white/[0.05] pointer-events-none" />
+                  <div className="absolute inset-11 rounded-full border border-white/[0.07] pointer-events-none" />
+
+                  {/* Center Rotating Album Cover */}
+                  <div className="w-full h-full rounded-full overflow-hidden ring-4 ring-[#0C0C0E] shadow-inner relative">
+                    <img
+                      src={currentTrack.coverUrl}
+                      alt={currentTrack.title}
+                      decoding="async"
+                      className="w-full h-full object-cover"
+                    />
+                    {/* Center Spindle Hole */}
+                    <div className="absolute inset-0 m-auto w-5 h-5 rounded-full bg-[#121215] border-2 border-white/30 shadow-md" />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* High-Res Square Artwork Mode */
+              <div
+                className={`w-[300px] h-[300px] xl:w-[336px] xl:h-[336px] rounded-[24px] overflow-hidden shadow-[0_28px_70px_rgba(0,0,0,0.65)] ring-1 ring-white/15 transition-transform duration-500 ease-out ${
+                  isPlaying ? 'scale-100' : 'scale-[0.94]'
+                }`}
+              >
+                <img
+                  src={currentTrack.coverUrl}
+                  alt={currentTrack.title}
+                  decoding="async"
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            )}
           </div>
 
-          <div className="mt-8 w-full max-w-[360px]">
+          {/* HarmonyOS 3-Tier Control Matrix (MusicControlComponent) */}
+          <div className="mt-6 w-full max-w-[368px] space-y-5">
+            {/* Tier 1: Track Identity + Favorite & Audio Quality Badges */}
             <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <h1 className="text-[22px] font-bold !text-white truncate tracking-tight">
                   {currentTrack.title}
                 </h1>
-                <p className="text-[15px] text-white/60 truncate mt-0.5 font-medium">
-                  {currentTrack.artists.join(' · ')}
+                <p className="text-[14px] !text-white/65 truncate mt-0.5 font-medium">
+                  {currentTrack.artists.join(' / ')} · {currentTrack.album}
                 </p>
               </div>
-              <span className="px-2 py-0.5 rounded bg-white/[0.12] text-[10px] font-medium text-white/80 shrink-0">
-                无损
-              </span>
+
+              <div className="flex items-center gap-2.5 shrink-0">
+                <span className="px-2 py-0.5 rounded-md bg-[#F5D08A]/15 border border-[#F5D08A]/40 text-[10px] font-mono-tabular font-semibold !text-[#FCE3B4]">
+                  SQ 无损
+                </span>
+                <button
+                  onClick={() => toggleFavorite(currentTrack.id)}
+                  className="w-9 h-9 rounded-full bg-white/[0.08] hover:bg-white/[0.15] flex items-center justify-center transition-transform active:scale-90 cursor-pointer"
+                  title="收藏至我喜欢"
+                >
+                  <Heart
+                    className={`w-4 h-4 ${
+                      currentTrack.isFavorite
+                        ? 'text-[#FA2D48] fill-current'
+                        : '!text-white/75'
+                    }`}
+                  />
+                </button>
+              </div>
             </div>
 
-            {/* Minimal Progress Scrubber */}
-            <div className="mt-6">
+            {/* Tier 2: Precision Scrubber Slider + Tabular Timestamps */}
+            <div>
               <div
                 onClick={(e) => {
                   const rect = e.currentTarget.getBoundingClientRect();
@@ -190,67 +366,110 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
                   );
                   seekToMs(Math.floor(ratio * totalMs));
                 }}
-                className="w-full h-1.5 rounded-full bg-white/20 overflow-hidden cursor-pointer group"
+                className="w-full h-1.5 hover:h-2 rounded-full bg-white/20 overflow-hidden cursor-pointer transition-all group"
               >
                 <div
-                  className="h-full rounded-full bg-white/90 group-hover:bg-white"
+                  className="h-full rounded-full bg-white group-hover:bg-[#FA2D48] transition-colors"
                   style={{ width: `${progressPercent}%` }}
                 />
               </div>
-              <div className="flex items-center justify-between mt-1.5 text-[11px] font-mono-tabular text-white/50">
+              <div className="flex items-center justify-between mt-1.5 text-[11px] font-mono-tabular !text-white/55">
                 <span>{formatDuration(Math.floor(currentTimeMs / 1000))}</span>
-                <span>
-                  -
-                  {formatDuration(
-                    Math.max(
-                      0,
-                      currentTrack.durationSeconds -
-                        Math.floor(currentTimeMs / 1000)
-                    )
-                  )}
-                </span>
+                <span>{formatDuration(currentTrack.durationSeconds)}</span>
               </div>
             </div>
 
-            {/* Stage Transport */}
-            <div className="mt-4 flex items-center justify-center gap-10">
+            {/* Tier 3: 5-Button Symmetric HarmonyOS Transport Row */}
+            <div className="flex items-center justify-between px-1">
               <button
-                onClick={prevTrack}
-                className="text-white/75 hover:text-white transition-transform active:scale-90 cursor-pointer"
+                onClick={() =>
+                  setPlayMode((m) =>
+                    m === 'sequence'
+                      ? 'shuffle'
+                      : m === 'shuffle'
+                      ? 'repeat'
+                      : 'sequence'
+                  )
+                }
+                title={
+                  playMode === 'sequence'
+                    ? '列表循环'
+                    : playMode === 'shuffle'
+                    ? '随机播放'
+                    : '单曲循环'
+                }
+                className="w-9 h-9 rounded-full hover:bg-white/10 flex items-center justify-center !text-white/65 hover:!text-white transition-colors cursor-pointer"
               >
-                <SkipBack className="w-7 h-7 fill-current" />
-              </button>
-              <button
-                onClick={togglePlay}
-                className="w-14 h-14 rounded-full bg-white/15 hover:bg-white/25 !text-white flex items-center justify-center transition-transform active:scale-95 cursor-pointer"
-              >
-                {isPlaying ? (
-                  <Pause className="w-7 h-7 fill-current" />
+                {playMode === 'shuffle' ? (
+                  <Shuffle className="w-4 h-4" />
                 ) : (
-                  <Play className="w-7 h-7 fill-current ml-0.5" />
+                  <Repeat className="w-4 h-4" />
                 )}
               </button>
+
+              <button
+                onClick={prevTrack}
+                className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center !text-white/85 hover:!text-white transition-transform active:scale-90 cursor-pointer"
+              >
+                <SkipBack className="w-6 h-6 fill-current" />
+              </button>
+
+              <button
+                onClick={togglePlay}
+                className="w-15 h-15 rounded-full bg-white hover:scale-105 active:scale-95 text-[#141418] shadow-[0_12px_30px_rgba(255,255,255,0.22)] flex items-center justify-center transition-transform cursor-pointer"
+              >
+                {isPlaying ? (
+                  <Pause className="w-6 h-6 fill-current" />
+                ) : (
+                  <Play className="w-6 h-6 fill-current ml-0.5" />
+                )}
+              </button>
+
               <button
                 onClick={nextTrack}
-                className="text-white/75 hover:text-white transition-transform active:scale-90 cursor-pointer"
+                className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center !text-white/85 hover:!text-white transition-transform active:scale-90 cursor-pointer"
               >
-                <SkipForward className="w-7 h-7 fill-current" />
+                <SkipForward className="w-6 h-6 fill-current" />
               </button>
+
+              <button
+                onClick={() => {
+                  setStageOpen(false);
+                  setActiveNav('settings');
+                }}
+                title="打开 10 段参量均衡器"
+                className="w-9 h-9 rounded-full hover:bg-white/10 flex items-center justify-center !text-white/65 hover:!text-white transition-colors cursor-pointer"
+              >
+                <Sliders className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Subtle Volume Slider Strip */}
+            <div className="flex items-center gap-3 pt-1 px-2">
+              <Volume2 className="w-3.5 h-3.5 !text-white/45 shrink-0" />
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={volume}
+                onChange={(e) => setVolume(Number(e.target.value))}
+                className="w-full h-1 accent-white/85 bg-white/15 rounded-lg cursor-pointer"
+              />
             </div>
           </div>
         </div>
 
-        {/* Right Column: Hardware-Accelerated Smooth Lyrics Viewport */}
+        {/* Right Column: HarmonyOS NEXT Fluid Lyrics Viewport (LyricComponent) */}
         <div
           ref={scrollContainerRef}
-          className="h-[520px] overflow-y-auto pr-6 py-44 flex flex-col space-y-7 no-scrollbar relative"
+          className="h-[540px] overflow-y-auto pr-6 py-48 flex flex-col space-y-6 no-scrollbar relative"
         >
           {currentTrack.lyrics.map((line, index) => {
             const isActiveLine = index === activeLineIndex;
             const distance = Math.abs(index - activeLineIndex);
             const opacityVal = isActiveLine
               ? 1
-              : Math.max(0.22, 0.52 - distance * 0.1);
+              : Math.max(0.22, 0.55 - distance * 0.1);
 
             return (
               <div
@@ -263,58 +482,73 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
                   opacity: opacityVal,
                   transform: isActiveLine
                     ? 'translate3d(0, 0, 0) scale(1)'
-                    : 'translate3d(0, 0, 0) scale(0.96)',
+                    : 'translate3d(0, 0, 0) scale(0.95)',
                 }}
-                className="cursor-pointer origin-left transition-[transform,opacity] duration-300 ease-out hover:!opacity-95 py-1"
+                className="group cursor-pointer origin-left transition-[transform,opacity] duration-300 ease-out hover:!opacity-95 py-1.5 px-3 -mx-3 rounded-2xl hover:bg-white/[0.04] flex items-center justify-between gap-4"
               >
-                {/* Cantonese Jyutping / Romanization */}
-                {line.romanization && (
-                  <div className="text-[13px] font-medium text-white/55 mb-1 tracking-wide">
-                    {line.romanization}
+                <div className="min-w-0 flex-1">
+                  {/* Cantonese Jyutping / Romanization */}
+                  {line.romanization && (
+                    <div className="text-[13px] font-medium !text-white/55 mb-1 tracking-wide">
+                      {line.romanization}
+                    </div>
+                  )}
+
+                  {/* Main Lyric Line (Inline flow without broken sub-word gaps!) */}
+                  <div
+                    className={`font-bold leading-[1.34] tracking-tight break-words ${
+                      isActiveLine
+                        ? 'text-[26px] xl:text-[32px]'
+                        : 'text-[20px] xl:text-[24px]'
+                    }`}
+                  >
+                    {line.words && line.words.length > 0 && isActiveLine ? (
+                      line.words.map((w, wIdx) => {
+                        const wordPassed = effectiveTimeMs >= w.endMs;
+                        const wordCurrent =
+                          effectiveTimeMs >= w.startMs &&
+                          effectiveTimeMs < w.endMs;
+                        const nextWordText = line.words?.[wIdx + 1]?.text;
+
+                        return (
+                          <span
+                            key={wIdx}
+                            className={`inline transition-colors duration-150 ${
+                              wordCurrent
+                                ? '!text-[#FCE3B4]'
+                                : wordPassed
+                                ? '!text-white'
+                                : '!text-white/40'
+                            }`}
+                          >
+                            {formatWordToken(w.text, nextWordText)}
+                          </span>
+                        );
+                      })
+                    ) : (
+                      <span className="!text-white">{line.text}</span>
+                    )}
                   </div>
-                )}
 
-                {/* Main Large Bold Lyric Line */}
-                <div className="text-[26px] xl:text-[34px] font-bold leading-[1.26] tracking-tight flex flex-wrap gap-x-1.5">
-                  {line.words && line.words.length > 0 && isActiveLine ? (
-                    line.words.map((w, wIdx) => {
-                      const wordPassed = effectiveTimeMs >= w.endMs;
-                      const wordCurrent =
-                        effectiveTimeMs >= w.startMs && effectiveTimeMs < w.endMs;
-
-                      return (
-                        <span
-                          key={wIdx}
-                          className={`transition-transform duration-150 ${
-                            wordCurrent
-                              ? '!text-white -translate-y-[1px]'
-                              : wordPassed
-                              ? '!text-white'
-                              : 'text-white/40'
-                          }`}
-                        >
-                          {w.text}
-                        </span>
-                      );
-                    })
-                  ) : (
-                    <span className="!text-white">{line.text}</span>
+                  {/* Subtitle Translation */}
+                  {line.translation && (
+                    <div className="text-[14.5px] !text-white/60 mt-1.5 font-medium">
+                      {line.translation}
+                    </div>
                   )}
                 </div>
 
-                {/* Subtitle Translation */}
-                {line.translation && (
-                  <div className="text-[15px] text-white/60 mt-1.5 font-medium">
-                    {line.translation}
-                  </div>
-                )}
+                {/* Hover Timestamp Jump Indicator (HarmonyOS Lyrics Seek Spec) */}
+                <span className="opacity-0 group-hover:opacity-100 text-[11px] font-mono-tabular px-2 py-0.5 rounded-full bg-white/15 !text-white/85 shrink-0 transition-opacity">
+                  {formatDuration(Math.floor(line.timeMs / 1000))}
+                </span>
               </div>
             );
           })}
         </div>
       </div>
 
-      <div className="relative z-10 pb-5" />
+      <div className="relative z-10 pb-4" />
     </>
   );
 };
@@ -336,7 +570,7 @@ export const AmbientLyricStage: React.FC = () => {
         transition:
           'transform 320ms cubic-bezier(0.22, 1, 0.36, 1), opacity 240ms cubic-bezier(0.22, 1, 0.36, 1)',
       }}
-      className="fixed inset-0 z-50 flex flex-col justify-between overflow-hidden select-none bg-[#0A0A0C]"
+      className="fixed inset-0 z-50 flex flex-col justify-between overflow-hidden select-none bg-[#0E0F14]"
     >
       <ActiveStageBody isStageOpen={isStageOpen} />
     </div>
