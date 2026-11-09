@@ -5,6 +5,10 @@ import { INITIAL_TRACKS } from '../data/mockMusicData';
 const DEFAULT_HUAWEI_COVER =
   'https://contentcenter-drcn.dbankcdn.cn/img/pub_1/HW-Music_cover_100_1/93/v3/xM5ysS7yTcGMEt_KCRzMag/59b7193a-9f7e-4950-a6c5-ff658092a18c.jpg/music_cover_1000x1000.webp';
 
+function isTauriRuntime(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+}
+
 function apiUrl(path: string): string {
   if (typeof window !== 'undefined' && window.location.port === '1420') {
     return path;
@@ -44,66 +48,85 @@ export interface LocalScanResult {
   tracks: CanonicalTrack[];
 }
 
+function mapRawTracks(rawTracks: any[]): CanonicalTrack[] {
+  return (rawTracks || []).map((t: any): CanonicalTrack => ({
+    id: t.id,
+    title: t.title,
+    artists: t.artists || ['未知艺人'],
+    album: t.album || '华为音乐',
+    durationSeconds: t.durationSeconds || 225,
+    coverUrl: t.coverUrl || DEFAULT_HUAWEI_COVER,
+    dominantColors: ['#4C1D24', '#18181B', '#09090B'],
+    isFavorite: true,
+    bindings: [
+      {
+        source: 'huawei',
+        sourceTrackId: t.sourceTrackId,
+        access: 'full',
+        quality: 'lossless',
+        formatLabel: '无损 FLAC',
+      },
+    ],
+    lyrics: [
+      {
+        timeMs: 0,
+        endMs: 12000,
+        text: `${t.title} — ${t.artists?.join(' / ')}`,
+        translation: '正在加载华为音乐逐字 HMRC / LRC 歌词...',
+      },
+    ],
+  }));
+}
+
 /**
  * Music Gateway Service
- * Isolates all HTTP bridge & Tauri IPC communication from UI components and Zustand store.
+ * Uses native Tauri IPC (`invoke`) when inside the packaged desktop app,
+ * and `/api/...` HTTP bridge when running in `pnpm dev` browser mode.
  */
 export const musicGateway = {
   async fetchHuaweiStatus(): Promise<HuaweiSessionStatus | null> {
+    if (isTauriRuntime()) {
+      try {
+        return await invoke<HuaweiSessionStatus>('get_huawei_status');
+      } catch {
+        // fallback to HTTP below
+      }
+    }
     try {
       const res = await fetch(apiUrl('/api/huawei/status'));
       if (res.ok) {
         return await res.json();
       }
     } catch {
-      // fallback to Tauri IPC below
+      // ignore
     }
-    try {
-      return await invoke<HuaweiSessionStatus>('get_huawei_status');
-    } catch {
-      return null;
-    }
+    return null;
   },
 
   async searchHuaweiCatalog(query: string): Promise<CanonicalTrack[]> {
     const q = query.trim();
     if (!q) return [];
-    const res = await fetch(apiUrl('/api/huawei/search'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: q }),
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    if (!Array.isArray(data.tracks)) return [];
 
-    return data.tracks.map((item: any): CanonicalTrack => ({
-      id: item.id,
-      title: item.title,
-      artists: item.artists || ['未知艺人'],
-      album: item.album || '华为音乐',
-      durationSeconds: item.durationSeconds || 225,
-      coverUrl: item.coverUrl || DEFAULT_HUAWEI_COVER,
-      dominantColors: ['#3F1D2B', '#18181B', '#09090B'],
-      isFavorite: false,
-      bindings: [
-        {
-          source: 'huawei',
-          sourceTrackId: item.sourceTrackId,
-          access: 'full',
-          quality: 'lossless',
-          formatLabel: '无损 FLAC',
-        },
-      ],
-      lyrics: [
-        {
-          timeMs: 0,
-          endMs: 12000,
-          text: `${item.title} — ${item.artists?.join(' / ')}`,
-          translation: '点击播放自动解析华为逐字 HMRC / LRC 歌词',
-        },
-      ],
-    }));
+    let data: any = null;
+    if (isTauriRuntime()) {
+      try {
+        data = await invoke('search_huawei_catalog', { query: q });
+      } catch {
+        data = null;
+      }
+    }
+    if (!data) {
+      const res = await fetch(apiUrl('/api/huawei/search'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: q }),
+      });
+      if (!res.ok) return [];
+      data = await res.json();
+    }
+
+    if (!Array.isArray(data?.tracks)) return [];
+    return mapRawTracks(data.tracks).map((t) => ({ ...t, isFavorite: false }));
   },
 
   async resolveTrackStream(params: {
@@ -112,6 +135,30 @@ export const musicGateway = {
     artist: string;
     quality: 'lossless' | 'hires' | 'standard';
   }): Promise<ResolvedStreamResult> {
+    if (isTauriRuntime()) {
+      try {
+        const res = await invoke<any>('resolve_huawei_track', { params });
+        return {
+          ok: Boolean(res?.ok && res.streamUrl),
+          status: 200,
+          contentCode: res.contentCode,
+          streamUrl: res.streamUrl,
+          quality: res.quality === 'lossless' ? 'lossless' : 'standard',
+          formatLabel: res.formatLabel,
+          isPreview: Boolean(res.isPreview),
+          durationSeconds: res.durationSeconds,
+          lyrics: Array.isArray(res.lyrics) ? res.lyrics : undefined,
+        };
+      } catch (err) {
+        const msg = String(err || '当前曲目暂无可播音源');
+        return {
+          ok: false,
+          status: msg.includes('尚未登录') ? 401 : 404,
+          error: msg,
+        };
+      }
+    }
+
     const resp = await fetch(apiUrl('/api/huawei/resolve'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -142,41 +189,20 @@ export const musicGateway = {
   },
 
   async syncHuaweiLibrary(): Promise<SyncedHuaweiLibrary> {
-    try {
+    let data: any = null;
+    if (isTauriRuntime()) {
+      data = await invoke<any>('sync_huawei_library');
+    } else {
       const res = await fetch(apiUrl('/api/huawei/sync'), { method: 'POST' });
       if (!res.ok) throw new Error('Bridge sync not authenticated');
-      const data = await res.json();
-      if (!data?.ok) throw new Error('Bridge sync failed');
+      data = await res.json();
+    }
 
-      const tracks: CanonicalTrack[] = (data.tracks || []).map((t: any): CanonicalTrack => ({
-        id: t.id,
-        title: t.title,
-        artists: t.artists || ['未知艺人'],
-        album: t.album || '华为音乐收藏',
-        durationSeconds: t.durationSeconds || 225,
-        coverUrl: t.coverUrl || DEFAULT_HUAWEI_COVER,
-        dominantColors: ['#4C1D24', '#18181B', '#09090B'],
-        isFavorite: true,
-        bindings: [
-          {
-            source: 'huawei',
-            sourceTrackId: t.sourceTrackId,
-            access: 'full',
-            quality: 'lossless',
-            formatLabel: '无损 FLAC',
-          },
-        ],
-        lyrics: [
-          {
-            timeMs: 0,
-            endMs: 12000,
-            text: `${t.title} — ${t.artists?.join(' / ')}`,
-            translation: '正在加载华为音乐逐字 HMRC / LRC 歌词...',
-          },
-        ],
-      }));
+    if (!data?.ok) throw new Error('Bridge sync failed');
 
-      const playlists: PlaylistItem[] = (data.playlists || []).map((p: any): PlaylistItem => ({
+    const tracks = mapRawTracks(data.tracks || []);
+    const playlists: PlaylistItem[] = (data.playlists || []).map(
+      (p: any): PlaylistItem => ({
         id: p.id,
         kind: 'imported',
         source: 'huawei',
@@ -189,28 +215,14 @@ export const musicGateway = {
           Array.isArray(p.trackIds) && p.trackIds.length > 0
             ? p.trackIds
             : tracks.slice(0, 30).map((t) => t.id),
-      }));
+      })
+    );
 
-      return {
-        snsUserId: data.snsUserID || data.snsUserId || '华为用户',
-        tracks,
-        playlists,
-      };
-    } catch {
-      // Fallback to Tauri native IPC if running inside packaged desktop bundle
-      const snapshot = await invoke<{
-        sns_user_id: string;
-        account_key: string;
-        favorite_tracks: Array<any>;
-        playlists: Array<any>;
-      }>('sync_huawei_assets_live');
-
-      return {
-        snsUserId: snapshot.sns_user_id,
-        tracks: [],
-        playlists: [],
-      };
-    }
+    return {
+      snsUserId: data.snsUserID || data.snsUserId || '华为用户',
+      tracks,
+      playlists,
+    };
   },
 
   async setHuaweiFavorite(contentCode: string, favorite: boolean): Promise<void> {
@@ -233,35 +245,37 @@ export const musicGateway = {
       const data = await res.json();
       if (!data?.ok) return null;
 
-      const tracks: CanonicalTrack[] = (data.tracks || []).map((item: any): CanonicalTrack => ({
-        id: item.id,
-        title: item.title,
-        artists: item.artists || ['本地音乐人'],
-        album: item.album || '本地无损专辑',
-        durationSeconds: item.durationSeconds || 240,
-        coverUrl: INITIAL_TRACKS[0].coverUrl,
-        dominantColors: ['#065F46', '#18181B', '#09090B'],
-        isFavorite: true,
-        audioUrl: item.streamUrl,
-        bindings: [
-          {
-            source: 'local',
-            sourceTrackId: item.sourceTrackId,
-            access: 'full',
-            quality: item.quality || 'hires',
-            formatLabel: item.formatLabel || '本地 FLAC',
-            streamUrl: item.streamUrl,
-          },
-        ],
-        lyrics: [
-          {
-            timeMs: 0,
-            endMs: 12000,
-            text: `${item.title} — ${item.artists?.join(' / ')}`,
-            translation: `本地音频文件 · ${item.sourceTrackId}`,
-          },
-        ],
-      }));
+      const tracks: CanonicalTrack[] = (data.tracks || []).map(
+        (item: any): CanonicalTrack => ({
+          id: item.id,
+          title: item.title,
+          artists: item.artists || ['本地音乐人'],
+          album: item.album || '本地无损专辑',
+          durationSeconds: item.durationSeconds || 240,
+          coverUrl: INITIAL_TRACKS[0].coverUrl,
+          dominantColors: ['#065F46', '#18181B', '#09090B'],
+          isFavorite: true,
+          audioUrl: item.streamUrl,
+          bindings: [
+            {
+              source: 'local',
+              sourceTrackId: item.sourceTrackId,
+              access: 'full',
+              quality: item.quality || 'hires',
+              formatLabel: item.formatLabel || '本地 FLAC',
+              streamUrl: item.streamUrl,
+            },
+          ],
+          lyrics: [
+            {
+              timeMs: 0,
+              endMs: 12000,
+              text: `${item.title} — ${item.artists?.join(' / ')}`,
+              translation: `本地音频文件 · ${item.sourceTrackId}`,
+            },
+          ],
+        })
+      );
 
       return {
         ok: true,
@@ -273,4 +287,3 @@ export const musicGateway = {
     }
   },
 };
-

@@ -2,7 +2,7 @@ use crate::huawei::{
     build_music_digest_header, is_preview_stream, is_safe_resource_url, now_iso8601_utc,
     open_session, MusicSession, MUSIC_ENDPOINT,
 };
-use crate::lyrics::{parse_hmrc, parse_lrc};
+use crate::lyrics::{parse_hmrc, parse_lrc, LyricLine};
 use base64::{engine::general_purpose::STANDARD as BASE64_STD, Engine as _};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -10,9 +10,15 @@ use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU16, Ordering};
 use url::Url;
 
 pub const BRIDGE_PORT: u16 = 19420;
+static ACTIVE_BRIDGE_PORT: AtomicU16 = AtomicU16::new(BRIDGE_PORT);
+
+pub fn active_bridge_port() -> u16 {
+    ACTIVE_BRIDGE_PORT.load(Ordering::Relaxed)
+}
 
 fn home_dir() -> PathBuf {
     std::env::var("HOME")
@@ -83,12 +89,10 @@ pub fn load_persisted_session() -> Option<MusicSession> {
         fs::read_to_string(&secrets_path),
         fs::read_to_string(&key_path),
     ) {
-        if let (Ok(secrets_json), Ok(key_bytes), Ok(outer_cipher)) = (
+        if let (Ok(secrets_json), Ok(key_bytes)) = (
             serde_json::from_str::<Value>(&secrets_raw),
             BASE64_STD.decode(key_b64.trim()),
-            Ok::<(), ()>(()),
         ) {
-            let _ = outer_cipher;
             if key_bytes.len() == 32 {
                 let mut key_arr = [0u8; 32];
                 key_arr.copy_from_slice(&key_bytes);
@@ -98,7 +102,6 @@ pub fn load_persisted_session() -> Option<MusicSession> {
                     .and_then(|s| s.as_str())
                 {
                     if let Ok(outer_blob) = BASE64_STD.decode(entry_b64.trim()) {
-                        // Outer layer: AES-256-GCM with empty AAD (tinglan FileVault)
                         if outer_blob.len() > 28 {
                             use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
                             if let Ok(cipher) = Aes256Gcm::new_from_slice(&key_arr) {
@@ -120,7 +123,7 @@ pub fn load_persisted_session() -> Option<MusicSession> {
     None
 }
 
-fn to_frontend_lyrics(lines: Vec<crate::lyrics::LyricLine>) -> Vec<Value> {
+fn to_frontend_lyrics(lines: Vec<LyricLine>) -> Vec<Value> {
     lines
         .into_iter()
         .map(|l| {
@@ -147,6 +150,94 @@ fn to_frontend_lyrics(lines: Vec<crate::lyrics::LyricLine>) -> Vec<Value> {
         .collect()
 }
 
+fn extract_lyric_urls_from_play_data(play_data: &Value) -> (String, String, String) {
+    let mut lrc_url = String::new();
+    let mut hmrc_url = String::new();
+    let mut inline_text = String::new();
+
+    fn inspect_block(
+        block: Option<&Value>,
+        lrc_url: &mut String,
+        hmrc_url: &mut String,
+        inline_text: &mut String,
+    ) {
+        let Some(b) = block else { return };
+        if let Some(s) = b.as_str() {
+            if let Ok(parsed) = serde_json::from_str::<Value>(s) {
+                inspect_block(Some(&parsed), lrc_url, hmrc_url, inline_text);
+                return;
+            }
+            if is_safe_resource_url(s) {
+                if s.ends_with(".hmrc") {
+                    if hmrc_url.is_empty() {
+                        *hmrc_url = s.to_string();
+                    }
+                } else if lrc_url.is_empty() {
+                    *lrc_url = s.to_string();
+                }
+            } else if s.starts_with('[') && inline_text.is_empty() {
+                *inline_text = s.to_string();
+            }
+            return;
+        }
+        if let Some(obj) = b.as_object() {
+            if let Some(w) = obj.get("wordByWordLyric").and_then(|v| v.as_str()) {
+                if is_safe_resource_url(w) && hmrc_url.is_empty() {
+                    *hmrc_url = w.to_string();
+                }
+            }
+            if let Some(l) = obj.get("lineByLineLyric").and_then(|v| v.as_str()) {
+                if is_safe_resource_url(l) && lrc_url.is_empty() {
+                    *lrc_url = l.to_string();
+                }
+            }
+            if let Some(la) = obj.get("lyricAddress").and_then(|v| v.as_str()) {
+                if is_safe_resource_url(la) && lrc_url.is_empty() {
+                    *lrc_url = la.to_string();
+                }
+            }
+            if let Some(inner) = obj.get("lyrics") {
+                inspect_block(Some(inner), lrc_url, hmrc_url, inline_text);
+            }
+        }
+    }
+
+    inspect_block(
+        play_data.get("lyrics"),
+        &mut lrc_url,
+        &mut hmrc_url,
+        &mut inline_text,
+    );
+    inspect_block(
+        play_data.get("songInfo").and_then(|s| s.get("lyrics")),
+        &mut lrc_url,
+        &mut hmrc_url,
+        &mut inline_text,
+    );
+    inspect_block(
+        play_data.get("lyricAddress"),
+        &mut lrc_url,
+        &mut hmrc_url,
+        &mut inline_text,
+    );
+    inspect_block(
+        play_data.get("contentExInfo"),
+        &mut lrc_url,
+        &mut hmrc_url,
+        &mut inline_text,
+    );
+    inspect_block(
+        play_data
+            .get("songInfo")
+            .and_then(|s| s.get("contentExInfo")),
+        &mut lrc_url,
+        &mut hmrc_url,
+        &mut inline_text,
+    );
+
+    (lrc_url, hmrc_url, inline_text)
+}
+
 async fn huawei_post(token: &str, path: &str, body: Value) -> Result<Value, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(20))
@@ -165,7 +256,97 @@ async fn huawei_post(token: &str, path: &str, body: Value) -> Result<Value, Stri
     resp.json::<Value>().await.map_err(|e| e.to_string())
 }
 
-async fn handle_sync(session: &MusicSession) -> Result<Value, String> {
+async fn huawei_get(token: &str, path_with_query: &str) -> Result<Value, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let auth = build_music_digest_header(token, &now_iso8601_utc())?;
+    let resp = client
+        .get(format!("{}{}", MUSIC_ENDPOINT, path_with_query))
+        .header("Authorization", auth)
+        .header("User-Agent", "tinglan-native/0.1")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    resp.json::<Value>().await.map_err(|e| e.to_string())
+}
+
+fn normalize_provider_track(item: &Value) -> Option<Value> {
+    let cid = item
+        .get("contentID")
+        .or_else(|| item.get("contentId"))
+        .or_else(|| item.get("songCode"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
+    let title = item
+        .get("contentName")
+        .or_else(|| item.get("songName"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
+    if cid.is_empty() || title.is_empty() {
+        return None;
+    }
+
+    let mut artists = Vec::new();
+    if let Some(pairs) = item.get("artistNamePairs").and_then(|v| v.as_array()) {
+        for p in pairs {
+            if let Some(n) = p
+                .get("artistName")
+                .or_else(|| p.get("name"))
+                .and_then(|v| v.as_str())
+            {
+                if !n.trim().is_empty() {
+                    artists.push(n.trim().to_string());
+                }
+            }
+        }
+    }
+    if artists.is_empty() {
+        artists.push(
+            item.get("artistName")
+                .or_else(|| item.get("singerName"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("未知艺人")
+                .trim()
+                .to_string(),
+        );
+    }
+
+    let mut cover = String::new();
+    if let Some(pic) = item.get("picture") {
+        for k in ["bigImgURL", "middleImgURL", "smallImgURL"] {
+            if let Some(u) = pic.get(k).and_then(|v| v.as_str()) {
+                if is_safe_resource_url(u) {
+                    cover = u.to_string();
+                    break;
+                }
+            }
+        }
+    }
+
+    let dur = item
+        .get("duration")
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
+        })
+        .unwrap_or(225);
+
+    Some(json!({
+        "id": format!("hw_{}", cid),
+        "sourceTrackId": cid,
+        "title": title,
+        "artists": artists,
+        "album": item.get("albumName").and_then(|v| v.as_str()).unwrap_or("华为音乐"),
+        "durationSeconds": dur,
+        "coverUrl": cover,
+    }))
+}
+
+pub async fn handle_sync(session: &MusicSession) -> Result<Value, String> {
     let mut tracks = Vec::new();
     let mut seen = std::collections::HashSet::new();
     let mut start = 0usize;
@@ -193,65 +374,16 @@ async fn handle_sync(session: &MusicSession) -> Result<Value, String> {
             break;
         }
         for item in &items {
-            let cid = item
-                .get("contentID")
-                .or_else(|| item.get("songCode"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim();
-            let title = item
-                .get("contentName")
-                .or_else(|| item.get("songName"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim();
-            if cid.is_empty() || title.is_empty() || !seen.insert(cid.to_string()) {
-                continue;
-            }
-            let mut artists = Vec::new();
-            if let Some(pairs) = item.get("artistNamePairs").and_then(|v| v.as_array()) {
-                for p in pairs {
-                    if let Some(n) = p.get("artistName").and_then(|v| v.as_str()) {
-                        if !n.trim().is_empty() {
-                            artists.push(n.trim().to_string());
-                        }
-                    }
+            if let Some(norm) = normalize_provider_track(item) {
+                let cid = norm
+                    .get("sourceTrackId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                if seen.insert(cid) {
+                    tracks.push(norm);
                 }
             }
-            if artists.is_empty() {
-                artists.push(
-                    item.get("artistName")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("未知艺人")
-                        .to_string(),
-                );
-            }
-            let cover = item
-                .get("picture")
-                .and_then(|p| {
-                    p.get("bigImgURL")
-                        .or_else(|| p.get("middleImgURL"))
-                        .or_else(|| p.get("smallImgURL"))
-                })
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let dur = item
-                .get("duration")
-                .and_then(|v| {
-                    v.as_u64()
-                        .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
-                })
-                .unwrap_or(225);
-
-            tracks.push(json!({
-                "id": format!("hw_{}", cid),
-                "sourceTrackId": cid,
-                "title": title,
-                "artists": artists,
-                "album": item.get("albumName").and_then(|v| v.as_str()).unwrap_or("华为音乐收藏"),
-                "durationSeconds": dur,
-                "coverUrl": cover,
-            }));
         }
         if items.len() < limit {
             break;
@@ -265,7 +397,7 @@ async fn handle_sync(session: &MusicSession) -> Result<Value, String> {
         json!({
             "targetSnsUserID": session.sns_user_id,
             "start": 0,
-            "limit": 50,
+            "limit": 100,
             "contentTypes": [4, 5, 7]
         }),
     )
@@ -275,59 +407,106 @@ async fn handle_sync(session: &MusicSession) -> Result<Value, String> {
     let mut playlists = Vec::new();
     if let Some(pl_items) = pl_data.get("favoriteInfos").and_then(|v| v.as_array()) {
         for p in pl_items {
-            let pid = p.get("contentID").and_then(|v| v.as_str()).unwrap_or("");
-            let pname = p.get("contentName").and_then(|v| v.as_str()).unwrap_or("");
+            let pid = p
+                .get("contentID")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            let pname = p
+                .get("contentName")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
             if pid.is_empty() || pname.is_empty() {
                 continue;
             }
-            let mut track_ids = Vec::new();
-            if let Ok(detail) = huawei_post(
-                &session.token,
-                "/music-agn-service/v2/service/songlist/query",
+            let c_type = p
+                .get("contentType")
+                .and_then(|v| {
+                    v.as_i64()
+                        .or_else(|| v.as_str().and_then(|s| s.parse::<i64>().ok()))
+                })
+                .unwrap_or(5);
+
+            let mut pl_track_ids = Vec::new();
+            if c_type != 4 {
+                let query_path = format!(
+                    "/music-userbehavior-service/v1/service/playlist/detail/all?playListID={}&start=0&limit=50",
+                    pid
+                );
+                if let Ok(detail) = huawei_get(&session.token, &query_path).await {
+                    if let Some(list) = detail
+                        .get("playListInfoEx")
+                        .and_then(|e| e.get("playListSongInfoList"))
+                        .and_then(|v| v.as_array())
+                    {
+                        for item in list {
+                            if let Some(norm) = normalize_provider_track(item) {
+                                let tid = norm["id"].as_str().unwrap_or("").to_string();
+                                let cid = norm["sourceTrackId"].as_str().unwrap_or("").to_string();
+                                pl_track_ids.push(tid);
+                                if seen.insert(cid) {
+                                    tracks.push(norm);
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if let Ok(detail) = huawei_post(
+                "",
+                "/music-operation-service/v2/service/musiclist/detail/bymusiclistid",
                 json!({
-                    "songlistId": pid,
-                    "contentType": p.get("contentType").and_then(|v| v.as_i64()).unwrap_or(5),
+                    "musicListID": pid,
+                    "copyrightSwitch": "1",
                     "start": 0,
-                    "limit": 50
+                    "limit": "50"
                 }),
             )
             .await
             {
-                let songs = detail
-                    .get("songlistInfo")
-                    .and_then(|i| i.get("songs"))
-                    .or_else(|| detail.get("songs"))
-                    .and_then(|v| v.as_array());
-                if let Some(arr) = songs {
-                    for s in arr {
-                        if let Some(scid) = s
-                            .get("contentID")
-                            .or_else(|| s.get("songCode"))
-                            .and_then(|v| v.as_str())
-                        {
-                            track_ids.push(format!("hw_{}", scid));
+                if let Some(list) = detail
+                    .get("musicListInfoEx")
+                    .and_then(|e| e.get("songSimpleInfos"))
+                    .and_then(|v| v.as_array())
+                {
+                    for item in list {
+                        if let Some(norm) = normalize_provider_track(item) {
+                            let tid = norm["id"].as_str().unwrap_or("").to_string();
+                            let cid = norm["sourceTrackId"].as_str().unwrap_or("").to_string();
+                            pl_track_ids.push(tid);
+                            if seen.insert(cid) {
+                                tracks.push(norm);
+                            }
                         }
                     }
                 }
             }
+
             let cover = p
                 .get("picture")
-                .and_then(|pic| pic.get("bigImgURL").or_else(|| pic.get("middleImgURL")))
+                .and_then(|pic| {
+                    pic.get("bigImgURL")
+                        .or_else(|| pic.get("middleImgURL"))
+                        .or_else(|| pic.get("smallImgURL"))
+                })
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             let total_count = p
                 .get("totalCount")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(track_ids.len() as u64);
+                .and_then(|v| {
+                    v.as_u64()
+                        .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
+                })
+                .unwrap_or(pl_track_ids.len() as u64);
 
             playlists.push(json!({
-                "id": format!("hw_pl_{}", pid),
+                "id": format!("pl_hw_{}", pid),
                 "sourcePlaylistId": pid,
                 "name": pname,
-                "description": p.get("listDesc").and_then(|v| v.as_str()).unwrap_or("华为音乐云端歌单"),
+                "description": p.get("listDesc").and_then(|v| v.as_str()).unwrap_or("来自华为音乐账号云端歌单"),
                 "coverUrl": cover,
                 "trackCount": total_count,
-                "trackIds": track_ids,
+                "trackIds": pl_track_ids,
             }));
         }
     }
@@ -341,9 +520,11 @@ async fn handle_sync(session: &MusicSession) -> Result<Value, String> {
     }))
 }
 
-async fn handle_resolve(session: Option<&MusicSession>, body: &Value) -> Result<Value, String> {
-    let token = session.map(|s| s.token.as_str()).unwrap_or("");
-    let mut cid = body
+pub async fn handle_resolve(session: Option<&MusicSession>, body: &Value) -> Result<Value, String> {
+    let Some(sess) = session else {
+        return Err("尚未登录华为账号".into());
+    };
+    let mut target_code = body
         .get("contentCode")
         .and_then(|v| v.as_str())
         .unwrap_or("")
@@ -365,36 +546,46 @@ async fn handle_resolve(session: Option<&MusicSession>, body: &Value) -> Result<
         .unwrap_or("lossless")
         != "standard";
 
-    if cid.is_empty() && !title.is_empty() {
+    // If contentCode is missing or is a prefixed ID, resolve real contentID via fuzzysearch
+    if target_code.is_empty()
+        || target_code.starts_with("hw_")
+        || target_code.starts_with("loc_")
+    {
         let q = format!("{} {}", title, artist).trim().to_string();
-        if let Ok(sdata) = huawei_post(
-            token,
-            "/music-search-service/v1/service/search/common",
-            json!({
-                "searchKey": q,
-                "searchType": "1",
-                "pageNumber": "1",
-                "pageSize": "10",
-                "Command": "search_common"
-            }),
-        )
-        .await
-        {
-            if let Some(items) = sdata.get("songItems").and_then(|v| v.as_array()) {
-                if let Some(first) = items.first() {
-                    cid = first
+        if !q.is_empty() {
+            if let Ok(sdata) = huawei_post(
+                "",
+                "/music-search-service/v10/service/fuzzysearch",
+                json!({
+                    "contentType": "1",
+                    "correct": "1",
+                    "queryWord": q,
+                    "start": "0",
+                    "limit": "5"
+                }),
+            )
+            .await
+            {
+                if let Some(first) = sdata
+                    .get("songSimpleInfos")
+                    .and_then(|v| v.as_array())
+                    .and_then(|a| a.first())
+                {
+                    target_code = first
                         .get("contentID")
+                        .or_else(|| first.get("contentId"))
                         .or_else(|| first.get("songCode"))
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
+                        .trim()
                         .to_string();
                 }
             }
         }
     }
 
-    if cid.is_empty() {
-        return Err("未能匹配到华为云端曲目 ID".into());
+    if target_code.is_empty() {
+        return Err("未找到对应的华为音乐曲目 ID".into());
     }
 
     let q_types = if want_lossless {
@@ -402,154 +593,121 @@ async fn handle_resolve(session: Option<&MusicSession>, body: &Value) -> Result<
     } else {
         vec!["1"]
     };
-    let mut raw_url = String::new();
-    let mut resolved_quality = "standard";
+    let mut play_data = json!({});
+    let mut file_url = String::new();
 
     for qt in q_types {
-        if let Ok(udata) = huawei_post(
-            token,
-            "/music-agn-service/v1/service/song/geturl",
-            json!({ "contentCode": cid, "qualityType": qt }),
+        if let Ok(pdata) = huawei_post(
+            &sess.token,
+            "/music-play-service/v3/service/file/bycontentcode",
+            json!({
+                "contentCode": target_code,
+                "contentType": "1",
+                "qualityType": qt
+            }),
         )
         .await
         {
-            let u = udata
-                .get("url")
-                .or_else(|| udata.get("playUrl"))
-                .or_else(|| udata.get("songUrl"))
-                .or_else(|| udata.get("listenUrl"))
+            let u = pdata
+                .get("fileURL")
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
-                .trim();
-            if !u.is_empty() && is_safe_resource_url(u) {
-                raw_url = u.to_string();
-                resolved_quality = if qt == "3" || u.to_ascii_lowercase().contains(".flac") {
-                    "lossless"
-                } else {
-                    "standard"
-                };
+                .trim()
+                .to_string();
+            if is_safe_resource_url(&u) {
+                file_url = u;
+                play_data = pdata;
                 break;
             }
         }
     }
 
-    if raw_url.is_empty() {
-        return Err("华为云端未返回可播放流地址".into());
+    if file_url.is_empty() {
+        return Err("当前歌曲暂无可播流或需会员权限".into());
     }
 
-    // Fetch HMRC / LRC lyrics
-    let mut lyrics_json = Vec::new();
-    if let Ok(ldata) = huawei_post(
-        token,
-        "/music-agn-service/v2/service/song/lyric",
-        json!({ "contentCode": cid }),
-    )
-    .await
-    {
-        let hmrc_url = ldata
-            .get("WordbywordLyricUrl")
-            .or_else(|| ldata.get("wordbywordLyricUrl"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let lrc_url = ldata
-            .get("lyricUrl")
-            .or_else(|| ldata.get("LyricUrl"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+    let (lrc_url, hmrc_url, inline_text) = extract_lyric_urls_from_play_data(&play_data);
+    let client = reqwest::Client::new();
+    let mut parsed_lines: Vec<LyricLine> = Vec::new();
 
-        let client = reqwest::Client::new();
-        let mut parsed_lines = Vec::new();
-        if !hmrc_url.is_empty() {
-            if let Ok(resp) = client.get(hmrc_url).send().await {
-                if let Ok(raw_hmrc) = resp.text().await {
-                    parsed_lines = parse_hmrc(&raw_hmrc);
-                }
+    if !hmrc_url.is_empty() {
+        if let Ok(resp) = client.get(&hmrc_url).send().await {
+            if let Ok(raw_hmrc) = resp.text().await {
+                parsed_lines = parse_hmrc(&raw_hmrc);
             }
         }
-        if parsed_lines.is_empty() && !lrc_url.is_empty() {
-            if let Ok(resp) = client.get(lrc_url).send().await {
-                if let Ok(raw_lrc) = resp.text().await {
-                    parsed_lines = parse_lrc(&raw_lrc);
-                }
-            }
-        }
-        lyrics_json = to_frontend_lyrics(parsed_lines);
     }
+    if parsed_lines.is_empty() && !lrc_url.is_empty() {
+        if let Ok(resp) = client.get(&lrc_url).send().await {
+            if let Ok(raw_lrc) = resp.text().await {
+                parsed_lines = parse_lrc(&raw_lrc);
+            }
+        }
+    }
+    if parsed_lines.is_empty() && !inline_text.is_empty() {
+        parsed_lines = parse_lrc(&inline_text);
+    }
+
+    let duration_seconds = play_data
+        .get("songInfo")
+        .and_then(|s| s.get("duration"))
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
+        })
+        .filter(|d| *d > 0);
+
+    let play_q = play_data
+        .get("playQuality")
+        .or_else(|| play_data.get("qualityType"))
+        .and_then(|v| {
+            v.as_i64()
+                .or_else(|| v.as_str().and_then(|s| s.parse::<i64>().ok()))
+        })
+        .unwrap_or(1);
+    let is_lossless = play_q == 3 || file_url.to_ascii_lowercase().contains(".flac");
 
     let encoded_url: String =
-        url::form_urlencoded::byte_serialize(raw_url.as_bytes()).collect();
+        url::form_urlencoded::byte_serialize(file_url.as_bytes()).collect();
     let stream_url = format!(
         "http://127.0.0.1:{}/api/huawei/stream?url={}",
-        BRIDGE_PORT, encoded_url
+        active_bridge_port(),
+        encoded_url
     );
 
     Ok(json!({
         "ok": true,
-        "contentCode": cid,
+        "contentCode": target_code,
         "streamUrl": stream_url,
-        "quality": resolved_quality,
-        "formatLabel": if resolved_quality == "lossless" { "无损 FLAC" } else { "标准音质" },
-        "isPreview": is_preview_stream(&raw_url),
-        "lyrics": lyrics_json,
+        "rawStreamUrl": file_url,
+        "quality": if is_lossless { "lossless" } else { "standard" },
+        "formatLabel": if is_lossless { "无损 FLAC" } else { "320k MP3" },
+        "isPreview": is_preview_stream(&file_url),
+        "durationSeconds": duration_seconds,
+        "lyrics": to_frontend_lyrics(parsed_lines),
     }))
 }
 
-async fn handle_search(session: Option<&MusicSession>, query: &str) -> Result<Value, String> {
-    let token = session.map(|s| s.token.as_str()).unwrap_or("");
+pub async fn handle_search(query: &str) -> Result<Value, String> {
     let data = huawei_post(
-        token,
-        "/music-search-service/v1/service/search/common",
+        "",
+        "/music-search-service/v10/service/fuzzysearch",
         json!({
-            "searchKey": query,
-            "searchType": "1",
-            "pageNumber": "1",
-            "pageSize": "30",
-            "Command": "search_common"
+            "contentType": "1",
+            "correct": "1",
+            "queryWord": query,
+            "start": "0",
+            "limit": "30"
         }),
     )
     .await?;
 
     let mut tracks = Vec::new();
-    if let Some(items) = data.get("songItems").and_then(|v| v.as_array()) {
+    if let Some(items) = data.get("songSimpleInfos").and_then(|v| v.as_array()) {
         for item in items {
-            let cid = item
-                .get("contentID")
-                .or_else(|| item.get("songCode"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim();
-            let title = item
-                .get("contentName")
-                .or_else(|| item.get("songName"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim();
-            if cid.is_empty() || title.is_empty() {
-                continue;
+            if let Some(norm) = normalize_provider_track(item) {
+                tracks.push(norm);
             }
-            let artist = item
-                .get("artistName")
-                .or_else(|| item.get("singerName"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("未知艺人");
-            let cover = item
-                .get("picture")
-                .and_then(|p| p.get("bigImgURL").or_else(|| p.get("middleImgURL")))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let dur = item
-                .get("duration")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(225);
-            tracks.push(json!({
-                "id": format!("hw_{}", cid),
-                "sourceTrackId": cid,
-                "title": title,
-                "artists": [artist],
-                "album": item.get("albumName").and_then(|v| v.as_str()).unwrap_or("华为音乐"),
-                "durationSeconds": dur,
-                "coverUrl": cover,
-            }));
         }
     }
 
@@ -579,53 +737,67 @@ fn proxy_huawei_stream(mut stream: TcpStream, raw_url: &str, range_header: Optio
         send_json(stream, 400, &json!({ "error": "invalid stream url" }));
         return;
     }
-    let res = tauri::async_runtime::block_on(async move {
+    let url_owned = raw_url.to_string();
+    let _ = tauri::async_runtime::block_on(async move {
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(60))
+            .timeout(std::time::Duration::from_secs(120))
             .build()
             .ok()?;
-        let mut req = client.get(raw_url).header("User-Agent", "tinglan-native/0.1");
+        let mut req = client.get(&url_owned).header("User-Agent", "tinglan-native/0.1");
         if let Some(ref r) = range_header {
             req = req.header("Range", r);
         }
-        let upstream = req.send().await.ok()?;
+        let mut upstream = req.send().await.ok()?;
         let status = upstream.status().as_u16();
-        let ct = upstream
+        let ct_raw = upstream
             .headers()
             .get("content-type")
             .and_then(|v| v.to_str().ok())
-            .unwrap_or("audio/flac")
-            .to_string();
+            .unwrap_or("audio/flac");
+        let ct = if ct_raw.contains("x-flac") || url_owned.to_ascii_lowercase().contains(".flac") {
+            "audio/flac".to_string()
+        } else {
+            ct_raw.to_string()
+        };
+        let cl = upstream
+            .headers()
+            .get("content-length")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
         let cr = upstream
             .headers()
             .get("content-range")
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string());
-        let bytes = upstream.bytes().await.ok()?;
-        Some((status, ct, cr, bytes))
-    });
 
-    if let Some((status, ct, cr, bytes)) = res {
         let status_line = if status == 206 {
             "HTTP/1.1 206 Partial Content"
         } else {
             "HTTP/1.1 200 OK"
         };
         let mut hdr = format!(
-            "{}\r\nContent-Type: {}\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n",
-            status_line,
-            ct,
-            bytes.len()
+            "{}\r\nContent-Type: {}\r\nAccept-Ranges: bytes\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n",
+            status_line, ct
         );
+        if let Some(len_str) = cl {
+            hdr.push_str(&format!("Content-Length: {}\r\n", len_str));
+        }
         if let Some(c_range) = cr {
             hdr.push_str(&format!("Content-Range: {}\r\n", c_range));
         }
         hdr.push_str("\r\n");
-        let _ = stream.write_all(hdr.as_bytes());
-        let _ = stream.write_all(&bytes);
-    } else {
-        send_json(stream, 500, &json!({ "error": "upstream stream error" }));
-    }
+
+        if stream.write_all(hdr.as_bytes()).is_err() {
+            return Some(());
+        }
+        // Stream chunks immediately so audio playback starts in <150ms without waiting for full FLAC download
+        while let Ok(Some(chunk)) = upstream.chunk().await {
+            if stream.write_all(&chunk).is_err() {
+                break;
+            }
+        }
+        Some(())
+    });
 }
 
 fn serve_local_file_stream(mut stream: TcpStream, file_path: &str, range_header: Option<String>) {
@@ -689,20 +861,56 @@ fn serve_local_file_stream(mut stream: TcpStream, file_path: &str, range_header:
     let _ = stream.write_all(&buf);
 }
 
-fn handle_client(mut stream: TcpStream) {
-    let mut buf = [0u8; 16384];
-    let Ok(n) = stream.read(&mut buf) else {
-        return;
-    };
-    if n == 0 {
-        return;
+/// Reads the full HTTP request headers AND full `Content-Length` body across multiple TCP packets.
+fn read_full_http_request(stream: &mut TcpStream) -> Option<(String, String)> {
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(10)));
+    let mut data = Vec::with_capacity(4096);
+    let mut chunk = [0u8; 4096];
+    let header_end_idx;
+
+    loop {
+        let n = stream.read(&mut chunk).ok()?;
+        if n == 0 {
+            return None;
+        }
+        data.extend_from_slice(&chunk[..n]);
+        if let Some(pos) = data.windows(4).position(|w| w == b"\r\n\r\n") {
+            header_end_idx = pos;
+            break;
+        }
+        if data.len() > 65536 {
+            return None;
+        }
     }
-    let raw_req = String::from_utf8_lossy(&buf[..n]);
-    let Some(header_end) = raw_req.find("\r\n\r\n") else {
+
+    let header_str = String::from_utf8_lossy(&data[..header_end_idx]).to_string();
+    let mut content_length = 0usize;
+    for line in header_str.lines() {
+        if let Some((k, v)) = line.split_once(':') {
+            if k.trim().eq_ignore_ascii_case("content-length") {
+                content_length = v.trim().parse::<usize>().unwrap_or(0);
+            }
+        }
+    }
+
+    let body_start = header_end_idx + 4;
+    while data.len() < body_start + content_length {
+        let n = stream.read(&mut chunk).ok()?;
+        if n == 0 {
+            break;
+        }
+        data.extend_from_slice(&chunk[..n]);
+    }
+
+    let body_end = (body_start + content_length).min(data.len());
+    let body_str = String::from_utf8_lossy(&data[body_start..body_end]).to_string();
+    Some((header_str, body_str))
+}
+
+fn handle_client(mut stream: TcpStream) {
+    let Some((header_part, body_part)) = read_full_http_request(&mut stream) else {
         return;
     };
-    let header_part = &raw_req[..header_end];
-    let body_part = &raw_req[header_end + 4..];
 
     let mut lines = header_part.lines();
     let first_line = lines.next().unwrap_or("");
@@ -757,7 +965,7 @@ fn handle_client(mut stream: TcpStream) {
             }
         }
         ("POST", "/api/huawei/resolve") => {
-            let body_json: Value = serde_json::from_str(body_part).unwrap_or_else(|_| json!({}));
+            let body_json: Value = serde_json::from_str(&body_part).unwrap_or_else(|_| json!({}));
             let sess = load_persisted_session();
             match tauri::async_runtime::block_on(handle_resolve(sess.as_ref(), &body_json)) {
                 Ok(val) => send_json(stream, 200, &val),
@@ -765,19 +973,18 @@ fn handle_client(mut stream: TcpStream) {
             }
         }
         ("POST", "/api/huawei/search") => {
-            let body_json: Value = serde_json::from_str(body_part).unwrap_or_else(|_| json!({}));
+            let body_json: Value = serde_json::from_str(&body_part).unwrap_or_else(|_| json!({}));
             let q = body_json
                 .get("query")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            let sess = load_persisted_session();
-            match tauri::async_runtime::block_on(handle_search(sess.as_ref(), q)) {
+            match tauri::async_runtime::block_on(handle_search(q)) {
                 Ok(val) => send_json(stream, 200, &val),
                 Err(e) => send_json(stream, 500, &json!({ "ok": false, "error": e })),
             }
         }
         ("POST", "/api/huawei/favorite") => {
-            let body_json: Value = serde_json::from_str(body_part).unwrap_or_else(|_| json!({}));
+            let body_json: Value = serde_json::from_str(&body_part).unwrap_or_else(|_| json!({}));
             if let Some(sess) = load_persisted_session() {
                 let cid = body_json
                     .get("contentCode")
@@ -787,15 +994,15 @@ fn handle_client(mut stream: TcpStream) {
                     .get("favorite")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(true);
-                let endpoint = if fav {
-                    "/music-userbehavior-service/v1/service/favorite/add"
-                } else {
-                    "/music-userbehavior-service/v1/service/favorite/delete"
-                };
+                let action_type = if fav { "1" } else { "2" };
                 let _ = tauri::async_runtime::block_on(huawei_post(
                     &sess.token,
-                    endpoint,
-                    json!({ "contentID": cid, "contentType": 1 }),
+                    "/music-userbehavior-service/v1/service/favorite/action",
+                    json!({
+                        "actionType": action_type,
+                        "contentTypes": [1],
+                        "contentIDs": [cid]
+                    }),
                 ));
             }
             send_json(stream, 200, &json!({ "ok": true }));
@@ -822,7 +1029,7 @@ fn handle_client(mut stream: TcpStream) {
                         "durationSeconds": t.duration_ms.unwrap_or(240_000) / 1000,
                         "quality": t.quality,
                         "formatLabel": "本地无损",
-                        "streamUrl": format!("http://127.0.0.1:{}/api/local/stream?path={}", BRIDGE_PORT, enc),
+                        "streamUrl": format!("http://127.0.0.1:{}/api/local/stream?path={}", active_bridge_port(), enc),
                     }));
                 }
             }
@@ -848,10 +1055,26 @@ fn handle_client(mut stream: TcpStream) {
 }
 
 pub fn spawn_embedded_bridge_server() {
+    let mut bound_listener = None;
+    for port in BRIDGE_PORT..=19450 {
+        if let Ok(l) = TcpListener::bind(("127.0.0.1", port)) {
+            ACTIVE_BRIDGE_PORT.store(port, Ordering::Relaxed);
+            bound_listener = Some(l);
+            break;
+        }
+    }
+    if bound_listener.is_none() {
+        if let Ok(l) = TcpListener::bind(("127.0.0.1", 0)) {
+            if let Ok(addr) = l.local_addr() {
+                ACTIVE_BRIDGE_PORT.store(addr.port(), Ordering::Relaxed);
+            }
+            bound_listener = Some(l);
+        }
+    }
+    let Some(listener) = bound_listener else {
+        return;
+    };
     std::thread::spawn(move || {
-        let Ok(listener) = TcpListener::bind(("127.0.0.1", BRIDGE_PORT)) else {
-            return;
-        };
         for conn in listener.incoming().flatten() {
             std::thread::spawn(move || {
                 handle_client(conn);
@@ -859,4 +1082,3 @@ pub fn spawn_embedded_bridge_server() {
         }
     });
 }
-

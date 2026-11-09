@@ -60,6 +60,25 @@ fn get_huawei_status(state: State<'_, AppRuntimeState>) -> serde_json::Value {
 }
 
 #[tauri::command]
+async fn resolve_huawei_track(params: serde_json::Value) -> Result<serde_json::Value, String> {
+    let sess = bridge_server::load_persisted_session();
+    bridge_server::handle_resolve(sess.as_ref(), &params).await
+}
+
+#[tauri::command]
+async fn sync_huawei_library() -> Result<serde_json::Value, String> {
+    let Some(sess) = bridge_server::load_persisted_session() else {
+        return Err("not logged in".into());
+    };
+    bridge_server::handle_sync(&sess).await
+}
+
+#[tauri::command]
+async fn search_huawei_catalog(query: String) -> Result<serde_json::Value, String> {
+    bridge_server::handle_search(&query).await
+}
+
+#[tauri::command]
 fn get_huawei_auth_contract(state: State<'_, AppRuntimeState>) -> HuaweiAuthPreview {
     let attempt = huawei::AuthAttempt::new(huawei::now_epoch_secs());
     let auth_url = attempt.authorize_url();
@@ -222,6 +241,9 @@ pub fn run() {
         .manage(AppRuntimeState::default())
         .invoke_handler(tauri::generate_handler![
             get_huawei_status,
+            resolve_huawei_track,
+            sync_huawei_library,
+            search_huawei_catalog,
             get_huawei_auth_contract,
             start_huawei_webview_login,
             submit_huawei_callback_url,

@@ -37,6 +37,15 @@ export class ParametricEqualizerEngine {
   private attachedElement: HTMLAudioElement | null = null;
 
   attach(audioElement: HTMLAudioElement, bands: EqualizerBand[]) {
+    if (
+      typeof window !== 'undefined' &&
+      !window.location.protocol.startsWith('http')
+    ) {
+      // On Linux WebKitGTK (tauri://localhost), createMediaElementSource across
+      // tauri:// -> http://127.0.0.1 triggers WebKit's cross-scheme taint mute.
+      // Let HTML5 <audio> play directly through native GStreamer/PipeWire sink.
+      return;
+    }
     if (this.attachedElement === audioElement && this.ctx) {
       return;
     }

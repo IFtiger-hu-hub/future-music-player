@@ -85,16 +85,17 @@ export const FloatingPlayerBar: React.FC = () => {
     }
   }, [isPlaying, currentTrack.audioUrl]);
 
-  // High-precision 50ms clock synced directly to the real <audio> element for word-by-word HMRC lyrics
+  // High-precision 60ms clock only active when a word-by-word lyric view is visible
   useEffect(() => {
+    if (!isPlaying || (!isStageOpen && !isDesktopLyricOpen)) return;
     const timer = setInterval(() => {
       const el = audioRef.current;
       if (el && !el.paused && Number.isFinite(el.currentTime)) {
         setCurrentTimeMs(Math.floor(el.currentTime * 1000));
       }
-    }, 50);
+    }, 60);
     return () => clearInterval(timer);
-  }, [setCurrentTimeMs]);
+  }, [isPlaying, isStageOpen, isDesktopLyricOpen, setCurrentTimeMs]);
 
   // Subscribe to seek events from scrubber or lyric click
   useEffect(() => {
@@ -114,7 +115,12 @@ export const FloatingPlayerBar: React.FC = () => {
       {/* Production HTML5 Audio Engine */}
       <audio
         ref={audioRef}
-        crossOrigin="anonymous"
+        crossOrigin={
+          typeof window !== 'undefined' &&
+          window.location.protocol.startsWith('http')
+            ? 'anonymous'
+            : undefined
+        }
         preload="auto"
         src={currentTrack.audioUrl || undefined}
         onLoadedMetadata={(e) => {
@@ -139,24 +145,21 @@ export const FloatingPlayerBar: React.FC = () => {
       />
 
       <div className="h-[68px] rounded-[16px] theme-playerbar backdrop-blur-3xl border border-white/[0.08] shadow-[0_12px_40px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(255,255,255,0.08)] px-4 flex items-center justify-between gap-6">
-        {/* Left: Album Art (Shared Layout) + Track Title + Artist */}
+        {/* Left: Album Art + Track Title + Artist */}
         <div className="flex items-center gap-3.5 min-w-0 w-[30%]">
-          {!isStageOpen && (
-            <motion.div
-              layoutId="shared-album-cover"
-              onClick={() => setStageOpen(true)}
-              className="relative w-11 h-11 rounded-[9px] overflow-hidden shadow-md shrink-0 cursor-pointer group bg-white/5"
-            >
-              <img
-                src={currentTrack.coverUrl}
-                alt={currentTrack.title}
-                className="w-full h-full object-cover"
-              />
-              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                <Maximize2 className="w-3.5 h-3.5 text-white" />
-              </div>
-            </motion.div>
-          )}
+          <div
+            onClick={() => setStageOpen(true)}
+            className="relative w-11 h-11 rounded-[9px] overflow-hidden shadow-md shrink-0 cursor-pointer group bg-white/5 transition-transform duration-200 active:scale-95"
+          >
+            <img
+              src={currentTrack.coverUrl}
+              alt={currentTrack.title}
+              className="w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+              <Maximize2 className="w-3.5 h-3.5 text-white" />
+            </div>
+          </div>
 
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
