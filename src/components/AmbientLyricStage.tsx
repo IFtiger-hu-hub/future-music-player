@@ -12,9 +12,16 @@ import {
   Volume2,
   Sparkles,
   Disc3,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 import { usePlayerStore } from '../store/usePlayerStore';
 import { SourceId } from '../types/music';
+import {
+  buildLyricRenderSegments,
+  computeGlyphKaraokeState,
+  findActiveLyricIndex,
+} from '../utils/lyricUtils';
 import { formatDuration } from './TrackTable';
 
 const SOURCE_LABELS: Record<SourceId, string> = {
@@ -25,19 +32,6 @@ const SOURCE_LABELS: Record<SourceId, string> = {
   navidrome: '私有云',
 };
 
-/**
- * Helper to determine if a space should be inserted after a lyric word token
- * (inserts a space between Latin words if neither token already contains whitespace).
- */
-function formatWordToken(text: string, nextText?: string): string {
-  if (!nextText) return text;
-  if (/\s$/.test(text) || /^\s/.test(nextText)) return text;
-  if (/[a-zA-Z0-9]$/.test(text) && /^[a-zA-Z0-9]/.test(nextText)) {
-    return `${text} `;
-  }
-  return text;
-}
-
 const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) => {
   const currentTrack = usePlayerStore((s) => s.currentTrack);
   const activeSourceForPlayback = usePlayerStore((s) => s.activeSourceForPlayback);
@@ -47,7 +41,9 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
   const volume = usePlayerStore((s) => s.volume);
   const setVolume = usePlayerStore((s) => s.setVolume);
   const isDesktopLyricOpen = usePlayerStore((s) => s.isDesktopLyricOpen);
+  const isDesktopLyricLocked = usePlayerStore((s) => s.isDesktopLyricLocked);
   const setDesktopLyricOpen = usePlayerStore((s) => s.setDesktopLyricOpen);
+  const setDesktopLyricLocked = usePlayerStore((s) => s.setDesktopLyricLocked);
   const togglePlay = usePlayerStore((s) => s.togglePlay);
   const nextTrack = usePlayerStore((s) => s.nextTrack);
   const prevTrack = usePlayerStore((s) => s.prevTrack);
@@ -66,16 +62,36 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
   const totalMs = Math.max(1000, currentTrack.durationSeconds * 1000);
   const progressPercent = Math.min(100, (currentTimeMs / totalMs) * 100);
 
-  const foundIdx = currentTrack.lyrics.findIndex(
-    (line) => effectiveTimeMs >= line.timeMs && effectiveTimeMs < line.endMs
+  const activeLineIndex = findActiveLyricIndex(
+    currentTrack.lyrics,
+    effectiveTimeMs
   );
-  const activeLineIndex = foundIdx >= 0 ? foundIdx : 0;
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const lineRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const [isUserScrolling, setIsUserScrolling] = useState(false);
+  const userScrollTimerRef = useRef<number | null>(null);
+
+  const handleManualScrollActivity = () => {
+    setIsUserScrolling(true);
+    if (userScrollTimerRef.current !== null) {
+      window.clearTimeout(userScrollTimerRef.current);
+    }
+    userScrollTimerRef.current = window.setTimeout(() => {
+      setIsUserScrolling(false);
+    }, 4000);
+  };
 
   useEffect(() => {
-    if (!isStageOpen) return;
+    return () => {
+      if (userScrollTimerRef.current !== null) {
+        window.clearTimeout(userScrollTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isStageOpen || isUserScrolling) return;
     const container = scrollContainerRef.current;
     const targetEl = lineRefs.current[activeLineIndex];
     if (container && targetEl) {
@@ -88,7 +104,7 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
         behavior: 'smooth',
       });
     }
-  }, [activeLineIndex, isStageOpen, currentTrack.id]);
+  }, [activeLineIndex, isStageOpen, isUserScrolling, currentTrack.id]);
 
   const [c1, c2, c3] = currentTrack.dominantColors || [
     '#3F1D2B',
@@ -206,6 +222,34 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
           >
             桌面歌词
           </button>
+
+          {isDesktopLyricOpen && (
+            <button
+              onClick={() => setDesktopLyricLocked(!isDesktopLyricLocked)}
+              title={
+                isDesktopLyricLocked
+                  ? '点击解锁桌面歌词'
+                  : '锁定桌面歌词并开启鼠标穿透'
+              }
+              className={`h-8 px-3 rounded-full border text-[11px] font-medium flex items-center gap-1 transition-colors cursor-pointer ${
+                isDesktopLyricLocked
+                  ? 'bg-amber-500/20 border-amber-400/50 !text-amber-300'
+                  : 'bg-black/35 border-white/[0.1] !text-white/70 hover:!text-white'
+              }`}
+            >
+              {isDesktopLyricLocked ? (
+                <>
+                  <Lock className="w-3 h-3" />
+                  <span>解锁歌词</span>
+                </>
+              ) : (
+                <>
+                  <Unlock className="w-3 h-3" />
+                  <span>锁定穿透</span>
+                </>
+              )}
+            </button>
+          )}
         </div>
       </div>
 
@@ -462,6 +506,14 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
         {/* Right Column: HarmonyOS NEXT Fluid Lyrics Viewport (LyricComponent) */}
         <div
           ref={scrollContainerRef}
+          onWheel={handleManualScrollActivity}
+          onTouchMove={handleManualScrollActivity}
+          style={{
+            maskImage:
+              'linear-gradient(to bottom, transparent 0%, black 11%, black 89%, transparent 100%)',
+            WebkitMaskImage:
+              'linear-gradient(to bottom, transparent 0%, black 11%, black 89%, transparent 100%)',
+          }}
           className="h-[540px] overflow-y-auto pr-6 py-48 flex flex-col space-y-6 no-scrollbar relative"
         >
           {currentTrack.lyrics.map((line, index) => {
@@ -469,7 +521,14 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
             const distance = Math.abs(index - activeLineIndex);
             const opacityVal = isActiveLine
               ? 1
-              : Math.max(0.22, 0.55 - distance * 0.1);
+              : isUserScrolling
+              ? 0.68
+              : Math.max(0.22, 0.56 - distance * 0.09);
+
+            const segments =
+              isActiveLine && line.words && line.words.length > 0
+                ? buildLyricRenderSegments(line)
+                : [];
 
             return (
               <div
@@ -477,54 +536,124 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
                 ref={(el) => {
                   lineRefs.current[index] = el;
                 }}
-                onClick={() => seekToMs(line.timeMs)}
+                onClick={() => {
+                  setIsUserScrolling(false);
+                  seekToMs(line.timeMs);
+                }}
                 style={{
                   opacity: opacityVal,
                   transform: isActiveLine
                     ? 'translate3d(0, 0, 0) scale(1)'
-                    : 'translate3d(0, 0, 0) scale(0.95)',
+                    : 'translate3d(0, 0, 0) scale(0.955)',
                 }}
-                className="group cursor-pointer origin-left transition-[transform,opacity] duration-300 ease-out hover:!opacity-95 py-1.5 px-3 -mx-3 rounded-2xl hover:bg-white/[0.04] flex items-center justify-between gap-4"
+                className="group cursor-pointer origin-left transition-[transform,opacity] duration-300 ease-out hover:!opacity-95 py-2 px-3.5 -mx-3.5 rounded-2xl hover:bg-white/[0.045] flex items-center justify-between gap-4"
               >
                 <div className="min-w-0 flex-1">
                   {/* Cantonese Jyutping / Romanization */}
                   {line.romanization && (
-                    <div className="text-[13px] font-medium !text-white/55 mb-1 tracking-wide">
+                    <div
+                      className={`text-[13px] font-medium mb-1 tracking-wide transition-colors ${
+                        isActiveLine ? '!text-[#FCE3B4]/80' : '!text-white/50'
+                      }`}
+                    >
                       {line.romanization}
                     </div>
                   )}
 
-                  {/* Main Lyric Line (Inline flow without broken sub-word gaps!) */}
+                  {/* Main Lyric Line: Unbreakable Word Groups + Smooth 60fps Karaoke Sweep */}
                   <div
-                    className={`font-bold leading-[1.34] tracking-tight break-words ${
+                    className={`font-bold leading-[1.36] tracking-tight break-words ${
                       isActiveLine
                         ? 'text-[26px] xl:text-[32px]'
                         : 'text-[20px] xl:text-[24px]'
                     }`}
                   >
-                    {line.words && line.words.length > 0 && isActiveLine ? (
-                      line.words.map((w, wIdx) => {
-                        const wordPassed = effectiveTimeMs >= w.endMs;
-                        const wordCurrent =
-                          effectiveTimeMs >= w.startMs &&
-                          effectiveTimeMs < w.endMs;
-                        const nextWordText = line.words?.[wIdx + 1]?.text;
-
+                    {segments.length > 0 ? (
+                      segments.map((seg, sIdx) => {
+                        if (seg.kind === 'space') {
+                          return (
+                            <span key={sIdx} className="inline whitespace-pre">
+                              {' '}
+                            </span>
+                          );
+                        }
                         return (
                           <span
-                            key={wIdx}
-                            className={`inline transition-colors duration-150 ${
-                              wordCurrent
-                                ? '!text-[#FCE3B4]'
-                                : wordPassed
-                                ? '!text-white'
-                                : '!text-white/40'
-                            }`}
+                            key={sIdx}
+                            className={
+                              seg.nowrap
+                                ? 'inline-block whitespace-nowrap'
+                                : 'inline whitespace-pre-wrap'
+                            }
                           >
-                            {formatWordToken(w.text, nextWordText)}
+                            {seg.glyphs.map((glyph, gIdx) => {
+                              const { state, progress } = computeGlyphKaraokeState(
+                                glyph.startMs,
+                                glyph.endMs,
+                                effectiveTimeMs
+                              );
+
+                              if (state === 'passed') {
+                                return (
+                                  <span
+                                    key={gIdx}
+                                    style={{
+                                      color: '#FCE3B4',
+                                      textShadow:
+                                        '0 0 18px rgba(245, 208, 138, 0.32), 0 2px 6px rgba(0, 0, 0, 0.5)',
+                                    }}
+                                  >
+                                    {glyph.text}
+                                  </span>
+                                );
+                              }
+
+                              if (state === 'upcoming') {
+                                return (
+                                  <span
+                                    key={gIdx}
+                                    style={{
+                                      color: 'rgba(255, 255, 255, 0.36)',
+                                    }}
+                                  >
+                                    {glyph.text}
+                                  </span>
+                                );
+                              }
+
+                              const pct = Math.round(progress * 100);
+                              const featherStart = Math.max(0, pct - 14);
+                              const featherEnd = Math.min(100, pct + 14);
+
+                              return (
+                                <span
+                                  key={gIdx}
+                                  style={{
+                                    backgroundImage: `linear-gradient(90deg, #FCE3B4 0%, #FFFFFF ${featherStart}%, rgba(255,255,255,0.36) ${featherEnd}%, rgba(255,255,255,0.36) 100%)`,
+                                    WebkitBackgroundClip: 'text',
+                                    backgroundClip: 'text',
+                                    color: 'transparent',
+                                    filter:
+                                      'drop-shadow(0 0 12px rgba(245, 208, 138, 0.35))',
+                                  }}
+                                >
+                                  {glyph.text}
+                                </span>
+                              );
+                            })}
                           </span>
                         );
                       })
+                    ) : isActiveLine ? (
+                      <span
+                        style={{
+                          color: '#FCE3B4',
+                          textShadow:
+                            '0 0 18px rgba(245, 208, 138, 0.28), 0 2px 6px rgba(0, 0, 0, 0.5)',
+                        }}
+                      >
+                        {line.text}
+                      </span>
                     ) : (
                       <span className="!text-white">{line.text}</span>
                     )}
@@ -532,14 +661,18 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
 
                   {/* Subtitle Translation */}
                   {line.translation && (
-                    <div className="text-[14.5px] !text-white/60 mt-1.5 font-medium">
+                    <div
+                      className={`text-[14.5px] mt-1.5 font-medium transition-colors ${
+                        isActiveLine ? '!text-white/80' : '!text-white/55'
+                      }`}
+                    >
                       {line.translation}
                     </div>
                   )}
                 </div>
 
                 {/* Hover Timestamp Jump Indicator (HarmonyOS Lyrics Seek Spec) */}
-                <span className="opacity-0 group-hover:opacity-100 text-[11px] font-mono-tabular px-2 py-0.5 rounded-full bg-white/15 !text-white/85 shrink-0 transition-opacity">
+                <span className="opacity-0 group-hover:opacity-100 text-[11px] font-mono-tabular px-2.5 py-0.5 rounded-full bg-white/15 !text-white/85 shrink-0 transition-opacity">
                   {formatDuration(Math.floor(line.timeMs / 1000))}
                 </span>
               </div>

@@ -12,6 +12,7 @@ import {
   Radio,
   User,
   SlidersHorizontal,
+  Lock,
 } from 'lucide-react';
 import { usePlayerStore } from '../store/usePlayerStore';
 import { NavSection, SourceId } from '../types/music';
@@ -78,7 +79,9 @@ export const FloatingPlayerBar: React.FC = () => {
   const eqBands = usePlayerStore((s) => s.eqBands);
   const isStageOpen = usePlayerStore((s) => s.isStageOpen);
   const isDesktopLyricOpen = usePlayerStore((s) => s.isDesktopLyricOpen);
+  const isDesktopLyricLocked = usePlayerStore((s) => s.isDesktopLyricLocked);
   const setDesktopLyricOpen = usePlayerStore((s) => s.setDesktopLyricOpen);
+  const setDesktopLyricLocked = usePlayerStore((s) => s.setDesktopLyricLocked);
   const togglePlay = usePlayerStore((s) => s.togglePlay);
   const nextTrack = usePlayerStore((s) => s.nextTrack);
   const setCurrentTimeMs = usePlayerStore((s) => s.setCurrentTimeMs);
@@ -123,13 +126,21 @@ export const FloatingPlayerBar: React.FC = () => {
 
   useEffect(() => {
     if (!isPlaying || (!isStageOpen && !isDesktopLyricOpen)) return;
-    const timer = setInterval(() => {
+    let rafId = 0;
+    let lastDispatchedMs = -1;
+    const tick = () => {
       const el = audioRef.current;
       if (el && !el.paused && Number.isFinite(el.currentTime)) {
-        setCurrentTimeMs(Math.floor(el.currentTime * 1000));
+        const nowMs = Math.floor(el.currentTime * 1000);
+        if (Math.abs(nowMs - lastDispatchedMs) >= 24) {
+          lastDispatchedMs = nowMs;
+          setCurrentTimeMs(nowMs);
+        }
       }
-    }, 60);
-    return () => clearInterval(timer);
+      rafId = window.requestAnimationFrame(tick);
+    };
+    rafId = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(rafId);
   }, [isPlaying, isStageOpen, isDesktopLyricOpen, setCurrentTimeMs]);
 
   useEffect(() => {
@@ -336,7 +347,7 @@ export const FloatingPlayerBar: React.FC = () => {
 
           <button
             onClick={() => setDesktopLyricOpen(!isDesktopLyricOpen)}
-            title="桌面悬浮歌词"
+            title="开启 / 关闭系统桌面悬浮歌词窗口"
             className={`px-2 py-0.5 rounded-full text-[10.5px] font-semibold transition-colors cursor-pointer ${
               isDesktopLyricOpen
                 ? 'bg-[#FA2D48] !text-white'
@@ -345,6 +356,16 @@ export const FloatingPlayerBar: React.FC = () => {
           >
             词
           </button>
+
+          {isDesktopLyricOpen && isDesktopLyricLocked && (
+            <button
+              onClick={() => setDesktopLyricLocked(false)}
+              title="桌面歌词当前已锁定穿透，点击解锁"
+              className="p-1 rounded-full bg-amber-500/20 text-amber-300 hover:bg-amber-500/35 transition-colors cursor-pointer"
+            >
+              <Lock className="w-3.5 h-3.5" />
+            </button>
+          )}
 
           <button
             onClick={() => setStageOpen(!isStageOpen)}

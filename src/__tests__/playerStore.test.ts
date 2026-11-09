@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { usePlayerStore } from '../store/usePlayerStore';
 import { INITIAL_TRACKS } from '../data/mockMusicData';
+import {
+  buildLyricRenderSegments,
+  computeGlyphKaraokeState,
+  findActiveLyricIndex,
+} from '../utils/lyricUtils';
 
 describe('Future Music Player Multi-Source Store & Huawei Sync Engine', () => {
   beforeEach(() => {
@@ -127,6 +132,61 @@ describe('Future Music Player Multi-Source Store & Huawei Sync Engine', () => {
     expect(afterReset.fontScale).toBe(1);
     expect(afterReset.customAccent).toBeNull();
     expect(document.documentElement.getAttribute('data-theme-mode')).toBe('dark');
+  });
+
+  it('keeps active lyric line during inter-sentence pauses without jumping back to line 0', () => {
+    const sampleLyrics = [
+      { timeMs: 0, endMs: 1200, text: 'Beauty And A Beat - Justin Bieber' },
+      { timeMs: 2500, endMs: 3700, text: 'Written by : Nicki Minaj/Max Martin' },
+      { timeMs: 7490, endMs: 8060, text: 'Yeah, Young Money' },
+    ];
+
+    expect(findActiveLyricIndex(sampleLyrics, 500)).toBe(0);
+    // In the pause between line 0 (ends 1200ms) and line 1 (starts 2500ms), stay on line 0
+    expect(findActiveLyricIndex(sampleLyrics, 1800)).toBe(0);
+    // In the pause between line 1 (ends 3700ms) and line 2 (starts 7490ms), stay on line 1 (do NOT jump back to 0!)
+    expect(findActiveLyricIndex(sampleLyrics, 5200)).toBe(1);
+    expect(findActiveLyricIndex(sampleLyrics, 7600)).toBe(2);
+  });
+
+  it('groups character-by-character HMRC credits into unbreakable words while preserving exact inter-word spaces', () => {
+    // Reproduces the exact Huawei HMRC character-level line from Beauty And A Beat:
+    // "Written by :Max Martin"
+    const rawChars = 'Written by :Max Martin';
+    const words = Array.from(rawChars).map((ch, idx) => ({
+      text: ch,
+      startMs: 1000 + idx * 22,
+      endMs: 1000 + idx * 22 + 50, // overlapping 50ms duration from legacy parser
+    }));
+
+    const segments = buildLyricRenderSegments({
+      timeMs: 1000,
+      endMs: 2000,
+      text: rawChars,
+      words,
+    });
+
+    // Reconstructed text across all segments must match rawChars 100% (no extra intra-word spaces!)
+    const fullText = segments
+      .map((s) =>
+        s.kind === 'space' ? s.text : s.glyphs.map((g) => g.text).join('')
+      )
+      .join('');
+    expect(fullText).toBe('Written by :Max Martin');
+
+    // "Written" and "Martin" must be grouped as nowrap segments so CSS never splits "Mar" / "tin"
+    const nowrapTexts = segments
+      .filter((s): s is Extract<typeof s, { kind: 'word' }> => s.kind === 'word' && s.nowrap)
+      .map((s) => s.glyphs.map((g) => g.text).join(''));
+    expect(nowrapTexts).toContain('Written');
+    expect(nowrapTexts).toContain('Martin');
+
+    // Overlapping glyph endMs must be clamped so at any timestamp at most 1 glyph is 'active'
+    const allGlyphs = segments.flatMap((s) => (s.kind === 'word' ? s.glyphs : []));
+    const activeAt1030 = allGlyphs.filter(
+      (g) => computeGlyphKaraokeState(g.startMs, g.endMs, 1030).state === 'active'
+    );
+    expect(activeAt1030.length).toBe(1);
   });
 });
 

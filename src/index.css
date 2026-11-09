@@ -222,3 +222,12 @@ html[data-theme-mode="light"] .theme-main-area .placeholder-white\/30::placehold
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* Transparent OS-level Desktop Lyric Window */
+html.desktop-lyric-window,
+html.desktop-lyric-window body,
+html.desktop-lyric-window #root {
+  background: transparent !important;
+  background-color: transparent !important;
+  overflow: hidden !important;
+}

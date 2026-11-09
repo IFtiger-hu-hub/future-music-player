@@ -238,6 +238,69 @@ fn scan_music_folder(folder_path: String) -> Result<local_scanner::LocalScanSumm
     local_scanner::scan_local_directory(Path::new(&folder_path))
 }
 
+#[tauri::command]
+fn set_desktop_lyric_open(app: AppHandle, open: bool, locked: bool) -> Result<(), String> {
+    if open {
+        if let Some(win) = app.get_webview_window("desktop-lyric") {
+            let _ = win.show();
+            let _ = win.set_always_on_top(true);
+            let _ = win.set_ignore_cursor_events(locked);
+            return Ok(());
+        }
+
+        let win = WebviewWindowBuilder::new(
+            &app,
+            "desktop-lyric",
+            WebviewUrl::App("index.html?window=desktop-lyric".into()),
+        )
+        .title("Future Music 桌面歌词")
+        .inner_size(860.0, 156.0)
+        .min_inner_size(460.0, 110.0)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .focused(false)
+        .build()
+        .map_err(|e| format!("无法创建系统级桌面歌词窗口: {e}"))?;
+
+        if let Ok(Some(monitor)) = win.primary_monitor() {
+            let screen_size = monitor.size();
+            let scale = monitor.scale_factor();
+            let win_w = (860.0 * scale) as i32;
+            let win_h = (156.0 * scale) as i32;
+            let x = ((screen_size.width as i32 - win_w) / 2).max(0);
+            let y = (screen_size.height as i32 - win_h - (68.0 * scale) as i32).max(0);
+            let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+        }
+
+        let _ = win.show();
+        let _ = win.set_always_on_top(true);
+        let _ = win.set_ignore_cursor_events(locked);
+    } else if let Some(win) = app.get_webview_window("desktop-lyric") {
+        let _ = win.hide();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn set_desktop_lyric_locked(app: AppHandle, locked: bool) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("desktop-lyric") {
+        let _ = win.set_ignore_cursor_events(locked);
+    }
+    let _ = app.emit("desktop-lyric-lock-changed", locked);
+    Ok(())
+}
+
+#[tauri::command]
+fn start_desktop_lyric_dragging(app: AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("desktop-lyric") {
+        win.start_dragging().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     bridge_server::spawn_embedded_bridge_server();
@@ -251,6 +314,13 @@ pub fn run() {
             let next_item = MenuItem::with_id(app, "next", "下一首", true, None::<&str>)?;
             let lyric_item =
                 MenuItem::with_id(app, "desktop_lyric", "桌面歌词开关", true, None::<&str>)?;
+            let lyric_lock_item = MenuItem::with_id(
+                app,
+                "desktop_lyric_lock",
+                "锁定 / 解锁桌面歌词 (穿透)",
+                true,
+                None::<&str>,
+            )?;
             let sep1 = PredefinedMenuItem::separator(app)?;
             let sep2 = PredefinedMenuItem::separator(app)?;
             let quit_item = MenuItem::with_id(app, "quit", "退出 Future Music", true, None::<&str>)?;
@@ -264,6 +334,7 @@ pub fn run() {
                     &prev_item,
                     &next_item,
                     &lyric_item,
+                    &lyric_lock_item,
                     &sep2,
                     &quit_item,
                 ],
@@ -292,6 +363,9 @@ pub fn run() {
                     }
                     "desktop_lyric" => {
                         let _ = app_handle.emit("tray-toggle-desktop-lyric", ());
+                    }
+                    "desktop_lyric_lock" => {
+                        let _ = app_handle.emit("tray-toggle-desktop-lyric-lock", ());
                     }
                     "quit" => {
                         app_handle.exit(0);
@@ -334,6 +408,12 @@ pub fn run() {
                     api.prevent_close();
                     let _ = window.hide();
                 }
+            } else if window.label() == "desktop-lyric" {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                    let _ = window.app_handle().emit("desktop-lyric-closed", ());
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -346,7 +426,10 @@ pub fn run() {
             submit_huawei_callback_url,
             sync_huawei_assets_live,
             parse_lyric_document,
-            scan_music_folder
+            scan_music_folder,
+            set_desktop_lyric_open,
+            set_desktop_lyric_locked,
+            start_desktop_lyric_dragging
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

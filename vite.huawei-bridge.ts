@@ -487,9 +487,15 @@ export function parseHMRC(raw: string): ParsedLyricLine[] {
       words.push({
         text: chunk,
         startMs: Math.round(lineStartMs + offsetMs),
-        endMs: Math.round(lineStartMs + offsetMs + Math.max(50, durMs)),
+        endMs: Math.round(lineStartMs + offsetMs + Math.max(15, durMs)),
       });
       fullText += chunk;
+    }
+
+    for (let i = 0; i < words.length - 1; i++) {
+      if (words[i].endMs > words[i + 1].startMs) {
+        words[i].endMs = Math.max(words[i].startMs + 10, words[i + 1].startMs);
+      }
     }
 
     const body = (fullText || stripWordMarkers(rest)).trim();
@@ -514,7 +520,12 @@ export function parseHMRC(raw: string): ParsedLyricLine[] {
 }
 
 export function parseLRC(raw: string): ParsedLyricLine[] {
-  const temp: Array<{ timeMs: number; text: string }> = [];
+  const temp: Array<{
+    timeMs: number;
+    text: string;
+    romanization?: string;
+    translation?: string;
+  }> = [];
   const rows = raw.replace(/\r\n/g, '\n').split('\n');
   const timeTagGlobal = /\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g;
 
@@ -523,8 +534,24 @@ export function parseLRC(raw: string): ParsedLyricLine[] {
     if (!trimmed) continue;
     const matches = [...trimmed.matchAll(timeTagGlobal)];
     if (matches.length === 0) continue;
-    const text = trimmed.replace(timeTagGlobal, '').trim();
+    let text = trimmed.replace(timeTagGlobal, '').trim();
     if (!text || /^(\/\/|作词|作曲|编曲|制作人)/.test(text)) continue;
+
+    let romanization: string | undefined;
+    let translation: string | undefined;
+    const caretIdx = text.indexOf('^');
+    if (caretIdx >= 0) {
+      const tail = stripWordMarkers(text.slice(caretIdx + 1));
+      text = text.slice(0, caretIdx).trim();
+      if (tail) {
+        if (hasHan(tail) && !hasHan(text)) {
+          translation = tail;
+        } else {
+          romanization = tail;
+        }
+      }
+    }
+    if (!text) continue;
 
     for (const m of matches) {
       const min = parseInt(m[1], 10);
@@ -537,7 +564,7 @@ export function parseLRC(raw: string): ParsedLyricLine[] {
           ? parseInt(fracRaw, 10) * 10
           : parseInt(fracRaw.slice(0, 3), 10);
       const totalMs = min * 60_000 + sec * 1000 + ms;
-      temp.push({ timeMs: totalMs, text });
+      temp.push({ timeMs: totalMs, text, romanization, translation });
     }
   }
 
@@ -547,15 +574,26 @@ export function parseLRC(raw: string): ParsedLyricLine[] {
   const merged: ParsedLyricLine[] = [];
   for (const item of temp) {
     const prev = merged[merged.length - 1];
-    if (prev && Math.abs(prev.timeMs - item.timeMs) <= 80 && prev.text !== item.text) {
+    const isCredits = /written by|作词|作曲|编曲/i.test(item.text);
+    if (
+      prev &&
+      Math.abs(prev.timeMs - item.timeMs) <= 80 &&
+      prev.text !== item.text &&
+      !isCredits
+    ) {
       if (!prev.translation) {
         prev.translation = item.text;
+      }
+      if (!prev.romanization && item.romanization) {
+        prev.romanization = item.romanization;
       }
     } else {
       merged.push({
         timeMs: item.timeMs,
         endMs: item.timeMs + 5000,
         text: item.text,
+        romanization: item.romanization,
+        translation: item.translation,
       });
     }
   }

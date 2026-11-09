@@ -2,7 +2,7 @@ use crate::huawei::{
     build_music_digest_header, is_preview_stream, is_safe_resource_url, now_iso8601_utc,
     open_session, MusicSession, MUSIC_ENDPOINT,
 };
-use crate::lyrics::{parse_hmrc, parse_lrc, LyricLine};
+use crate::lyrics::{merge_lyric_subtitles, parse_hmrc, parse_lrc, LyricLine};
 use base64::{engine::general_purpose::STANDARD as BASE64_STD, Engine as _};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -637,10 +637,15 @@ pub async fn handle_resolve(session: Option<&MusicSession>, body: &Value) -> Res
             }
         }
     }
-    if parsed_lines.is_empty() && !lrc_url.is_empty() {
+    if !lrc_url.is_empty() {
         if let Ok(resp) = client.get(&lrc_url).send().await {
             if let Ok(raw_lrc) = resp.text().await {
-                parsed_lines = parse_lrc(&raw_lrc);
+                let plain_lines = parse_lrc(&raw_lrc);
+                if parsed_lines.is_empty() {
+                    parsed_lines = plain_lines;
+                } else {
+                    parsed_lines = merge_lyric_subtitles(parsed_lines, &plain_lines);
+                }
             }
         }
     }

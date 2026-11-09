@@ -126,13 +126,20 @@ pub fn parse_hmrc(raw: &str) -> Vec<LyricLine> {
                 continue;
             }
             let start_ms = line_start + offset_ms;
-            let end_ms = start_ms + dur_ms.max(50);
+            let end_ms = start_ms + dur_ms.max(15);
             words.push(LyricWord {
                 text: chunk.to_string(),
                 start_ms,
                 end_ms,
             });
             full_text.push_str(chunk);
+        }
+
+        for i in 0..words.len().saturating_sub(1) {
+            let next_start = words[i + 1].start_ms;
+            if words[i].end_ms > next_start {
+                words[i].end_ms = next_start.max(words[i].start_ms + 10);
+            }
         }
 
         let body = full_text.trim().to_string();
@@ -148,6 +155,12 @@ pub fn parse_hmrc(raw: &str) -> Vec<LyricLine> {
             translation,
             words,
         });
+    }
+
+    for i in 0..out.len().saturating_sub(1) {
+        if out[i].end_ms > out[i + 1].time_ms && out[i + 1].time_ms > out[i].time_ms {
+            out[i].end_ms = out[i + 1].time_ms;
+        }
     }
     out
 }
@@ -377,37 +390,129 @@ pub fn parse_ttml(raw: &str) -> Result<Vec<LyricLine>, String> {
     Ok(lines)
 }
 
-/// Parses standard `[mm:ss.xx] lyric` LRC lines.
+/// Parses standard `[mm:ss.xx] lyric` LRC lines, including inline `^` subtitles and duplicate-timestamp translations.
 pub fn parse_lrc(raw: &str) -> Vec<LyricLine> {
-    let mut out = Vec::new();
+    let mut temp = Vec::new();
     for raw_line in raw.replace("\r\n", "\n").lines() {
-        let line = raw_line.trim();
-        if !line.starts_with('[') {
+        let mut cursor = raw_line.trim();
+        if !cursor.starts_with('[') {
             continue;
         }
-        let Some(close) = line.find(']') else {
+        let mut stamps = Vec::new();
+        while cursor.starts_with('[') {
+            let Some(close) = cursor.find(']') else {
+                break;
+            };
+            let stamp = &cursor[1..close];
+            if let Ok(time_ms) = parse_ttml_time_ms(stamp) {
+                stamps.push(time_ms);
+                cursor = cursor[close + 1..].trim();
+            } else {
+                break;
+            }
+        }
+        if stamps.is_empty() {
             continue;
-        };
-        let stamp = &line[1..close];
-        let text = line[close + 1..].trim();
+        }
+        let mut text_part = cursor;
+        let mut romanization: Option<String> = None;
+        let mut translation: Option<String> = None;
+        if let Some(caret) = text_part.find('^') {
+            let tail = strip_word_markers(text_part[caret + 1..].trim());
+            text_part = text_part[..caret].trim();
+            if !tail.is_empty() {
+                if has_han(&tail) && !has_han(text_part) {
+                    translation = Some(tail);
+                } else {
+                    romanization = Some(tail);
+                }
+            }
+        }
+        let text = text_part.trim();
         if text.is_empty() {
             continue;
         }
-        if let Ok(time_ms) = parse_ttml_time_ms(stamp) {
-            out.push(LyricLine {
+        for time_ms in stamps {
+            temp.push(LyricLine {
                 time_ms,
                 end_ms: time_ms + 5000,
                 text: text.to_string(),
-                romanization: None,
-                translation: None,
+                romanization: romanization.clone(),
+                translation: translation.clone(),
                 words: Vec::new(),
             });
         }
     }
+
+    temp.sort_by_key(|l| l.time_ms);
+
+    let mut out: Vec<LyricLine> = Vec::new();
+    for item in temp {
+        if let Some(prev) = out.last_mut() {
+            let is_credits = item.text.to_lowercase().contains("written by")
+                || item.text.contains("作词")
+                || item.text.contains("作曲")
+                || item.text.contains("编曲");
+            if prev.time_ms.abs_diff(item.time_ms) <= 80 && prev.text != item.text && !is_credits {
+                if prev.translation.is_none() {
+                    prev.translation = Some(item.text);
+                }
+                if prev.romanization.is_none() && item.romanization.is_some() {
+                    prev.romanization = item.romanization;
+                }
+                continue;
+            }
+        }
+        out.push(item);
+    }
+
     for i in 0..out.len().saturating_sub(1) {
         if out[i + 1].time_ms > out[i].time_ms {
             out[i].end_ms = out[i + 1].time_ms;
         }
     }
     out
+}
+
+fn normalize_for_match(s: &str) -> String {
+    s.chars()
+        .filter(|c| !c.is_whitespace() && !c.is_ascii_punctuation())
+        .flat_map(|c| c.to_lowercase())
+        .collect()
+}
+
+/// Merges translations/romanizations from a plain LRC track into word-by-word HMRC lines.
+pub fn merge_lyric_subtitles(
+    mut hmrc_lines: Vec<LyricLine>,
+    lrc_lines: &[LyricLine],
+) -> Vec<LyricLine> {
+    if hmrc_lines.is_empty() || lrc_lines.is_empty() {
+        return hmrc_lines;
+    }
+    for line in &mut hmrc_lines {
+        if line.translation.is_some() && line.romanization.is_some() {
+            continue;
+        }
+        let norm_line = normalize_for_match(&line.text);
+        if let Some(cand) = lrc_lines
+            .iter()
+            .filter(|p| p.time_ms.abs_diff(line.time_ms) <= 1800)
+            .min_by_key(|p| p.time_ms.abs_diff(line.time_ms))
+        {
+            if line.translation.is_none() {
+                if let Some(ref trans) = cand.translation {
+                    line.translation = Some(trans.clone());
+                } else {
+                    let norm_cand = normalize_for_match(&cand.text);
+                    if !norm_cand.is_empty() && norm_cand != norm_line {
+                        line.translation = Some(cand.text.clone());
+                    }
+                }
+            }
+            if line.romanization.is_none() && cand.romanization.is_some() {
+                line.romanization = cand.romanization.clone();
+            }
+        }
+    }
+    hmrc_lines
 }
