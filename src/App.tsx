@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
+import { listen } from '@tauri-apps/api/event';
 import { usePlayerStore } from './store/usePlayerStore';
 import { musicGateway } from './services/musicGateway';
 import { TopSourceBar } from './components/TopSourceBar';
@@ -30,11 +31,47 @@ export function App() {
   const activeSourceFilter = usePlayerStore((s) => s.activeSourceFilter);
   const toasts = usePlayerStore((s) => s.toasts);
   const togglePlay = usePlayerStore((s) => s.togglePlay);
+  const prevTrack = usePlayerStore((s) => s.prevTrack);
+  const nextTrack = usePlayerStore((s) => s.nextTrack);
+  const setDesktopLyricOpen = usePlayerStore((s) => s.setDesktopLyricOpen);
   const setStageOpen = usePlayerStore((s) => s.setStageOpen);
   const setCommandPaletteOpen = usePlayerStore((s) => s.setCommandPaletteOpen);
   const completeHuaweiReauth = usePlayerStore((s) => s.completeHuaweiReauth);
   const triggerHuaweiSync = usePlayerStore((s) => s.triggerHuaweiSync);
   const setThemeId = usePlayerStore((s) => s.setThemeId);
+
+  // Listen for native system tray menu events
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) {
+      return;
+    }
+    const unlisteners: Array<() => void> = [];
+    listen('tray-toggle-play', () => {
+      usePlayerStore.getState().togglePlay();
+    })
+      .then((fn) => unlisteners.push(fn))
+      .catch(() => {});
+    listen('tray-prev-track', () => {
+      usePlayerStore.getState().prevTrack();
+    })
+      .then((fn) => unlisteners.push(fn))
+      .catch(() => {});
+    listen('tray-next-track', () => {
+      usePlayerStore.getState().nextTrack();
+    })
+      .then((fn) => unlisteners.push(fn))
+      .catch(() => {});
+    listen('tray-toggle-desktop-lyric', () => {
+      const curr = usePlayerStore.getState().isDesktopLyricOpen;
+      setDesktopLyricOpen(!curr);
+    })
+      .then((fn) => unlisteners.push(fn))
+      .catch(() => {});
+
+    return () => {
+      unlisteners.forEach((fn) => fn());
+    };
+  }, [prevTrack, nextTrack, setDesktopLyricOpen]);
 
   // Initialize HarmonyOS Pure Light theme on first desktop launch to match design blueprint
   useEffect(() => {

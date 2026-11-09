@@ -9,7 +9,11 @@ pub mod plugin_host;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{
+    menu::{Menu, MenuItem, PredefinedMenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent,
+};
 use url::Url;
 
 pub struct AppRuntimeState {
@@ -239,6 +243,99 @@ pub fn run() {
     bridge_server::spawn_embedded_bridge_server();
     tauri::Builder::default()
         .manage(AppRuntimeState::default())
+        .setup(|app| {
+            let show_item = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
+            let play_pause_item =
+                MenuItem::with_id(app, "play_pause", "播放 / 暂停", true, None::<&str>)?;
+            let prev_item = MenuItem::with_id(app, "prev", "上一首", true, None::<&str>)?;
+            let next_item = MenuItem::with_id(app, "next", "下一首", true, None::<&str>)?;
+            let lyric_item =
+                MenuItem::with_id(app, "desktop_lyric", "桌面歌词开关", true, None::<&str>)?;
+            let sep1 = PredefinedMenuItem::separator(app)?;
+            let sep2 = PredefinedMenuItem::separator(app)?;
+            let quit_item = MenuItem::with_id(app, "quit", "退出 Future Music", true, None::<&str>)?;
+
+            let tray_menu = Menu::with_items(
+                app,
+                &[
+                    &show_item,
+                    &sep1,
+                    &play_pause_item,
+                    &prev_item,
+                    &next_item,
+                    &lyric_item,
+                    &sep2,
+                    &quit_item,
+                ],
+            )?;
+
+            let mut tray_builder = TrayIconBuilder::with_id("future-music-tray")
+                .tooltip("Future Music · 跨源无损音乐播放器")
+                .menu(&tray_menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app_handle, event| match event.id.as_ref() {
+                    "show" => {
+                        if let Some(win) = app_handle.get_webview_window("main") {
+                            let _ = win.unminimize();
+                            let _ = win.show();
+                            let _ = win.set_focus();
+                        }
+                    }
+                    "play_pause" => {
+                        let _ = app_handle.emit("tray-toggle-play", ());
+                    }
+                    "prev" => {
+                        let _ = app_handle.emit("tray-prev-track", ());
+                    }
+                    "next" => {
+                        let _ = app_handle.emit("tray-next-track", ());
+                    }
+                    "desktop_lyric" => {
+                        let _ = app_handle.emit("tray-toggle-desktop-lyric", ());
+                    }
+                    "quit" => {
+                        app_handle.exit(0);
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let app_handle = tray.app_handle();
+                        if let Some(win) = app_handle.get_webview_window("main") {
+                            let is_visible = win.is_visible().unwrap_or(false);
+                            let is_minimized = win.is_minimized().unwrap_or(false);
+                            if is_visible && !is_minimized {
+                                let _ = win.hide();
+                            } else {
+                                let _ = win.unminimize();
+                                let _ = win.show();
+                                let _ = win.set_focus();
+                            }
+                        }
+                    }
+                });
+
+            if let Some(default_icon) = app.default_window_icon() {
+                tray_builder = tray_builder.icon(default_icon.clone());
+            }
+
+            let _ = tray_builder.build(app)?;
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            // Clicking the native window close button on the main window hides it to the system tray
+            if window.label() == "main" {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             get_huawei_status,
             resolve_huawei_track,
