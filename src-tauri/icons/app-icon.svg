@@ -1,75 +1,114 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
-    <!-- Deep Obsidian Studio Base -->
-    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#1E1B32" />
-      <stop offset="50%" stop-color="#11131F" />
-      <stop offset="100%" stop-color="#08090F" />
+    <!-- Warm Ceramic Porcelain 3D Chassis -->
+    <linearGradient id="ceramicChassis" x1="0%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#FFFDF9" />
+      <stop offset="55%" stop-color="#F2ECE3" />
+      <stop offset="100%" stop-color="#DFD7CC" />
     </linearGradient>
 
-    <!-- Aurora Acoustic Ring & Beam Gradient -->
-    <linearGradient id="auroraGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#38BDF8" />
-      <stop offset="50%" stop-color="#818CF8" />
-      <stop offset="100%" stop-color="#F43F5E" />
+    <linearGradient id="ceramicLip" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#C8BFB2" />
+      <stop offset="100%" stop-color="#AEA498" />
     </linearGradient>
 
-    <!-- Pure Silver-White Note Gradient -->
-    <linearGradient id="noteGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+    <!-- Recessed Platter Well -->
+    <linearGradient id="platterWell" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#BDB5AA" />
+      <stop offset="100%" stop-color="#F7F3EC" />
+    </linearGradient>
+
+    <!-- Slate-Graphite Vinyl Base -->
+    <radialGradient id="vinylDisc" cx="38%" cy="32%" r="68%">
+      <stop offset="0%" stop-color="#353B48" />
+      <stop offset="45%" stop-color="#1E232E" />
+      <stop offset="100%" stop-color="#131720" />
+    </radialGradient>
+
+    <!-- Anisotropic Sheen Highlight -->
+    <linearGradient id="vinylSheen" x1="15%" y1="85%" x2="85%" y2="15%">
+      <stop offset="0%" stop-color="#94A3B8" stop-opacity="0" />
+      <stop offset="46%" stop-color="#CBD5E1" stop-opacity="0.28" />
+      <stop offset="50%" stop-color="#F8FAFC" stop-opacity="0.45" />
+      <stop offset="54%" stop-color="#CBD5E1" stop-opacity="0.28" />
+      <stop offset="100%" stop-color="#94A3B8" stop-opacity="0" />
+    </linearGradient>
+
+    <!-- 3D Coral-Ruby Center Dome -->
+    <radialGradient id="rubyDome" cx="35%" cy="28%" r="70%">
+      <stop offset="0%" stop-color="#FF6860" />
+      <stop offset="48%" stop-color="#FA2D48" />
+      <stop offset="100%" stop-color="#B9122C" />
+    </radialGradient>
+
+    <!-- Sculpted Porcelain Note -->
+    <linearGradient id="porcelainNote" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" stop-color="#FFFFFF" />
-      <stop offset="100%" stop-color="#E2E8F0" />
+      <stop offset="100%" stop-color="#EFECE6" />
     </linearGradient>
 
-    <filter id="dropShadow" x="-15%" y="-15%" width="130%" height="130%">
-      <feDropShadow dx="0" dy="18" stdDeviation="22" flood-color="#000000" flood-opacity="0.55" />
+    <filter id="chassisShadow" x="-15%" y="-15%" width="130%" height="135%">
+      <feDropShadow dx="0" dy="26" stdDeviation="24" flood-color="#1E1914" flood-opacity="0.38" />
+      <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#1E1914" flood-opacity="0.22" />
+    </filter>
+
+    <filter id="elementShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="10" flood-color="#090B10" flood-opacity="0.48" />
     </filter>
   </defs>
 
-  <!-- Dock Squircle Container -->
-  <rect x="76" y="76" width="872" height="872" rx="204" fill="url(#bgGrad)" filter="url(#dropShadow)" />
-  <rect x="79" y="79" width="866" height="866" rx="201" fill="none" stroke="url(#auroraGrad)" stroke-width="6" stroke-opacity="0.5" />
+  <!-- 3D Lower Extrusion Lip + Shadow -->
+  <rect x="76" y="88" width="872" height="872" rx="206" fill="url(#ceramicLip)" filter="url(#chassisShadow)" />
 
-  <!-- Outer Vinyl Grooves -->
-  <circle cx="512" cy="512" r="342" fill="none" stroke="#FFFFFF" stroke-opacity="0.06" stroke-width="3" />
-  <circle cx="512" cy="512" r="300" fill="none" stroke="#FFFFFF" stroke-opacity="0.09" stroke-width="3" />
+  <!-- Top Warm Ceramic Body -->
+  <rect x="76" y="68" width="872" height="868" rx="206" fill="url(#ceramicChassis)" stroke="#FFFFFF" stroke-width="5" stroke-opacity="0.9" />
 
-  <!-- Glowing Aurora Ring -->
-  <circle cx="512" cy="512" r="252" fill="none" stroke="url(#auroraGrad)" stroke-width="26" />
+  <!-- Recessed Platter Well -->
+  <circle cx="490" cy="496" r="354" fill="url(#platterWell)" />
+  <circle cx="490" cy="496" r="332" fill="#D5CEC4" />
 
-  <!-- Center Dark Studio Disc -->
-  <circle cx="512" cy="512" r="206" fill="#0E101A" stroke="#FFFFFF" stroke-opacity="0.1" stroke-width="3" />
+  <!-- Metallic Aluminum Platter Rim -->
+  <circle cx="490" cy="496" r="326" fill="#E2E6EC" filter="url(#elementShadow)" />
 
-  <!-- Unified Continuous Double Eighth Note (♫) -->
-  <g filter="url(#dropShadow)">
-    <!-- Single unified path for the two stems + double slanted beams -->
+  <!-- Slate-Graphite Vinyl Record -->
+  <circle cx="490" cy="496" r="316" fill="url(#vinylDisc)" />
+  <circle cx="490" cy="496" r="316" fill="url(#vinylSheen)" />
+
+  <!-- Fine Micro-Groove Rings -->
+  <circle cx="490" cy="496" r="290" fill="none" stroke="#FFFFFF" stroke-opacity="0.08" stroke-width="2" />
+  <circle cx="490" cy="496" r="264" fill="none" stroke="#FFFFFF" stroke-opacity="0.06" stroke-width="1.5" />
+  <circle cx="490" cy="496" r="236" fill="none" stroke="#FFFFFF" stroke-opacity="0.09" stroke-width="2" />
+  <circle cx="490" cy="496" r="208" fill="none" stroke="#FFFFFF" stroke-opacity="0.06" stroke-width="1.5" />
+  <circle cx="490" cy="496" r="182" fill="none" stroke="#FFFFFF" stroke-opacity="0.1" stroke-width="2" />
+
+  <!-- 3D Coral-Ruby Center Dome -->
+  <circle cx="490" cy="496" r="152" fill="url(#rubyDome)" filter="url(#elementShadow)" stroke="#FF9892" stroke-width="3" stroke-opacity="0.65" />
+  <circle cx="490" cy="496" r="130" fill="none" stroke="#FFFFFF" stroke-opacity="0.32" stroke-width="2.5" />
+
+  <!-- 3D Porcelain Musical Note (♫) -->
+  <g filter="url(#elementShadow)">
     <path
-      d="M426 356
-         C426 344 434 334 446 332
-         L624 298
-         C638 295 650 306 650 320
-         L650 554
-         L608 554
-         L608 394
-         L468 421
-         L468 590
-         L426 590
-         Z"
-      fill="url(#noteGrad)"
+      d="M456 426 L566 404 L566 516 L538 516 L538 446 L484 456 L484 540 L456 540 Z"
+      fill="url(#porcelainNote)"
     />
-    <!-- Accent Aurora Top Ribbon on the Beam -->
-    <path
-      d="M426 356
-         C426 344 434 334 446 332
-         L624 298
-         C638 295 650 306 650 320
-         L650 356
-         L426 399
-         Z"
-      fill="url(#auroraGrad)"
-    />
-    <!-- Left Note Head (smoothly joined to left stem right edge at x=468) -->
-    <ellipse cx="412" cy="592" rx="60" ry="45" transform="rotate(-18 412 592)" fill="url(#noteGrad)" />
-    <!-- Right Note Head (smoothly joined to right stem right edge at x=650) -->
-    <ellipse cx="594" cy="554" rx="60" ry="45" transform="rotate(-18 594 554)" fill="url(#noteGrad)" />
+    <ellipse cx="448" cy="542" rx="38" ry="28" transform="rotate(-18 448 542)" fill="url(#porcelainNote)" />
+    <ellipse cx="530" cy="518" rx="38" ry="28" transform="rotate(-18 530 518)" fill="url(#porcelainNote)" />
+  </g>
+
+  <!-- Bottom-Left Tactile Power/Play Button -->
+  <g filter="url(#elementShadow)">
+    <circle cx="176" cy="824" r="34" fill="url(#rubyDome)" stroke="#FFFFFF" stroke-width="3" stroke-opacity="0.75" />
+    <polygon points="168,810 168,838 190,824" fill="#FFFFFF" />
+  </g>
+
+  <!-- Top-Right 3D Brushed Metallic Tonearm Assembly -->
+  <g filter="url(#elementShadow)">
+    <circle cx="786" cy="222" r="64" fill="#D8DCE3" stroke="#FFFFFF" stroke-width="4" />
+    <circle cx="786" cy="222" r="36" fill="#F4F6F9" stroke="#CBD2DC" stroke-width="3" />
+    <circle cx="786" cy="222" r="15" fill="#FA2D48" />
+    <path d="M786 254 L760 500 L702 602" fill="none" stroke="#F1F5F9" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" />
+    <g transform="translate(698, 608) rotate(30)">
+      <rect x="-18" y="-26" width="36" height="52" rx="10" fill="#FA2D48" stroke="#FFFFFF" stroke-width="4" />
+    </g>
   </g>
 </svg>
