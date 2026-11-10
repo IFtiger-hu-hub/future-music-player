@@ -156,9 +156,9 @@ export const TrackTable: React.FC<TrackTableProps> = ({ tracks }) => {
                           playTrack(track);
                         }
                       }}
-                      className="hidden group-hover:flex items-center justify-center text-white cursor-pointer"
+                      className="hidden group-hover:flex w-7 h-7 rounded-full dock-btn-play items-center justify-center cursor-pointer"
                     >
-                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <Play className="w-3 h-3 !text-white fill-current ml-0.5" />
                     </button>
                   </>
                 )}
@@ -233,21 +233,22 @@ export const TrackTable: React.FC<TrackTableProps> = ({ tracks }) => {
               </div>
 
               {/* Favorite Heart + Tabular Duration */}
-              <div className="flex items-center justify-end gap-3 pr-1">
+              <div className="flex items-center justify-end gap-2.5 pr-1">
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     toggleFavorite(track.id);
                   }}
-                  className={`transition-opacity cursor-pointer ${
+                  title={track.isFavorite ? '取消喜欢' : '添加到我喜欢'}
+                  className={`w-7.5 h-7.5 rounded-full flex items-center justify-center transition-all cursor-pointer ${
                     track.isFavorite
-                      ? 'opacity-100 text-[#FA2D48]'
-                      : 'opacity-0 group-hover:opacity-100 text-white/40 hover:text-[#FA2D48]'
+                      ? 'dock-btn-icon dock-btn-icon-favorited opacity-100'
+                      : 'dock-btn-icon opacity-0 group-hover:opacity-100'
                   }`}
                 >
                   <Heart
-                    className={`w-4 h-4 ${
-                      track.isFavorite ? 'fill-current' : ''
+                    className={`w-3.5 h-3.5 ${
+                      track.isFavorite ? 'fill-current text-[#FA2D48]' : ''
                     }`}
                   />
                 </button>

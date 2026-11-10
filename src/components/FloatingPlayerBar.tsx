@@ -239,7 +239,7 @@ export const FloatingPlayerBar: React.FC = () => {
                 <motion.div
                   layoutId="harmony-bottom-nav-pill"
                   transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-                  className="absolute inset-0 rounded-full bg-white/[0.12]"
+                  className="absolute inset-0 rounded-full dock-nav-active-pill"
                 />
               )}
               <Icon
@@ -311,9 +311,9 @@ export const FloatingPlayerBar: React.FC = () => {
         </div>
 
         {/* Right: Multi-Source Pill + Transport Controls (Heart / Play / Next / Lyrics) */}
-        <div className="flex items-center gap-2.5 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           {/* Source Selector Pill */}
-          <div className="hidden sm:flex items-center p-0.5 rounded-full bg-white/[0.06] border border-white/[0.07]">
+          <div className="hidden sm:flex items-center p-[3px] rounded-full dock-source-well gap-0.5">
             {currentTrack.bindings.map((b) => {
               const info = SOURCE_LABELS[b.source];
               const isSelected = activeSourceForPlayback === b.source;
@@ -322,10 +322,10 @@ export const FloatingPlayerBar: React.FC = () => {
                   key={b.source}
                   onClick={() => switchPlaybackSource(b.source)}
                   title={`切换音源: ${info.name} (${b.formatLabel})`}
-                  className={`px-2 py-0.5 rounded-full text-[10px] font-medium transition-colors cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-full text-[10.5px] font-semibold leading-none transition-all cursor-pointer ${
                     isSelected
-                      ? 'bg-[#FA2D48] !text-white'
-                      : 'text-white/55 hover:text-white'
+                      ? 'dock-source-pill-active'
+                      : 'text-white/60 hover:text-white'
                   }`}
                 >
                   {info.short}
@@ -336,45 +336,49 @@ export const FloatingPlayerBar: React.FC = () => {
 
           <button
             onClick={() => toggleFavorite(currentTrack.id)}
-            className="text-white/55 hover:text-[#FA2D48] transition-colors cursor-pointer"
+            className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 cursor-pointer ${
+              currentTrack.isFavorite
+                ? 'dock-btn-icon dock-btn-icon-favorited'
+                : 'dock-btn-icon'
+            }`}
             title="喜欢"
           >
             <Heart
-              className={`w-4 h-4 ${
-                currentTrack.isFavorite ? 'text-[#FA2D48] fill-current' : ''
+              className={`w-3.5 h-3.5 transition-transform duration-200 ${
+                currentTrack.isFavorite
+                  ? 'text-[#FA2D48] fill-current scale-105'
+                  : ''
               }`}
             />
           </button>
 
           <button
             onClick={togglePlay}
-            className="w-8 h-8 rounded-full flex items-center justify-center text-white hover:scale-105 active:scale-95 transition-transform cursor-pointer"
+            className="w-9 h-9 rounded-full dock-btn-play flex items-center justify-center shrink-0 cursor-pointer"
             title={isPlaying ? '暂停' : '播放'}
           >
             {isResolvingAudio ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Loader2 className="w-4 h-4 !text-white animate-spin" />
             ) : isPlaying ? (
-              <Pause className="w-4 h-4 fill-current" />
+              <Pause className="w-4 h-4 !text-white fill-current" />
             ) : (
-              <Play className="w-4 h-4 fill-current ml-0.5" />
+              <Play className="w-4 h-4 !text-white fill-current ml-0.5" />
             )}
           </button>
 
           <button
             onClick={nextTrack}
-            className="text-white/75 hover:text-white transition-colors cursor-pointer"
+            className="w-8 h-8 rounded-full dock-btn-icon flex items-center justify-center shrink-0 cursor-pointer"
             title="下一首"
           >
-            <SkipForward className="w-4 h-4 fill-current" />
+            <SkipForward className="w-3.5 h-3.5 fill-current" />
           </button>
 
           <button
             onClick={() => setDesktopLyricOpen(!isDesktopLyricOpen)}
             title="开启 / 关闭系统桌面悬浮歌词窗口"
-            className={`px-2 py-0.5 rounded-full text-[10.5px] font-semibold transition-colors cursor-pointer ${
-              isDesktopLyricOpen
-                ? 'bg-[#FA2D48] !text-white'
-                : 'text-white/55 hover:text-white'
+            className={`w-8 h-8 rounded-full text-[11px] font-bold flex items-center justify-center shrink-0 cursor-pointer ${
+              isDesktopLyricOpen ? 'dock-btn-play' : 'dock-btn-icon'
             }`}
           >
             词
@@ -384,7 +388,7 @@ export const FloatingPlayerBar: React.FC = () => {
             <button
               onClick={() => setDesktopLyricLocked(false)}
               title="桌面歌词当前已锁定穿透，点击解锁"
-              className="p-1 rounded-full bg-amber-500/20 text-amber-300 hover:bg-amber-500/35 transition-colors cursor-pointer"
+              className="w-8 h-8 rounded-full dock-btn-icon !text-amber-500 flex items-center justify-center shrink-0 cursor-pointer"
             >
               <Lock className="w-3.5 h-3.5" />
             </button>
@@ -392,10 +396,14 @@ export const FloatingPlayerBar: React.FC = () => {
 
           <button
             onClick={() => setStageOpen(!isStageOpen)}
-            className="text-white/75 hover:text-white transition-colors cursor-pointer"
+            className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 cursor-pointer ${
+              isStageOpen ? 'dock-btn-play' : 'dock-btn-icon'
+            }`}
             title="展开歌词详情页"
           >
-            <Music className="w-4 h-4" />
+            <Music
+              className={`w-3.5 h-3.5 ${isStageOpen ? '!text-white' : ''}`}
+            />
           </button>
         </div>
       </div>

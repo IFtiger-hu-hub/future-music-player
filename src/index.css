@@ -293,9 +293,173 @@ html[data-theme-mode="dark"] .source-chip {
 }
 
 html[data-theme-mode="light"] .theme-harmony-dock {
-  background-color: rgba(255, 255, 255, 0.88);
-  border-color: rgba(15, 23, 42, 0.07);
-  box-shadow: 0 10px 32px rgba(15, 23, 42, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  background-color: rgba(255, 255, 255, 0.92);
+  border-color: rgba(15, 23, 42, 0.075);
+  box-shadow:
+    0 14px 36px -6px rgba(15, 23, 42, 0.1),
+    0 2px 6px rgba(15, 23, 42, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+/* Tactile Floating Mini-Player Transport Controls */
+.dock-source-well {
+  background: color-mix(in srgb, var(--theme-elevated) 86%, rgba(15, 23, 42, 0.05));
+  border: 1px solid color-mix(in srgb, var(--theme-text) 8%, transparent);
+  box-shadow:
+    inset 0 1px 2.5px rgba(15, 23, 42, 0.07),
+    0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+html[data-theme-mode="dark"] .dock-source-well {
+  background: rgba(0, 0, 0, 0.28);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.45),
+    0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.dock-source-pill-active {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--theme-accent) 88%, #ffffff 12%) 0%,
+    var(--theme-accent) 100%
+  );
+  color: #ffffff !important;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 82%, #000000 18%);
+  box-shadow:
+    0 3px 9px -1px color-mix(in srgb, var(--theme-accent) 46%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.dock-btn-play {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--theme-accent) 86%, #ffffff 14%) 0%,
+    var(--theme-accent) 100%
+  );
+  color: #ffffff !important;
+  border: 1px solid color-mix(in srgb, var(--theme-accent) 80%, #000000 20%);
+  box-shadow:
+    0 6px 16px -3px color-mix(in srgb, var(--theme-accent) 50%, transparent),
+    0 1px 3px rgba(15, 23, 42, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.44);
+  transition:
+    transform 170ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 170ms ease,
+    filter 170ms ease;
+}
+
+.dock-btn-play:hover {
+  transform: translateY(-1px) scale(1.05);
+  filter: brightness(1.05);
+  box-shadow:
+    0 9px 20px -3px color-mix(in srgb, var(--theme-accent) 60%, transparent),
+    0 2px 5px rgba(15, 23, 42, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.52);
+}
+
+.dock-btn-play:active {
+  transform: translateY(0) scale(0.94);
+}
+
+.dock-btn-icon {
+  background: linear-gradient(
+    180deg,
+    #ffffff 0%,
+    color-mix(in srgb, var(--theme-surface) 88%, var(--theme-elevated) 12%) 100%
+  );
+  color: var(--theme-secondary);
+  border: 1px solid color-mix(in srgb, var(--theme-text) 9.5%, transparent);
+  box-shadow:
+    0 2px 6px -1px rgba(15, 23, 42, 0.065),
+    0 1px 2px rgba(15, 23, 42, 0.035),
+    inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  transition:
+    transform 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
+}
+
+.dock-btn-icon:hover {
+  color: var(--theme-text);
+  border-color: color-mix(in srgb, var(--theme-text) 16%, transparent);
+  transform: translateY(-1px);
+  box-shadow:
+    0 5px 12px -2px rgba(15, 23, 42, 0.1),
+    0 1px 3px rgba(15, 23, 42, 0.05),
+    inset 0 1px 0 #ffffff;
+}
+
+.dock-btn-icon:active {
+  transform: translateY(0) scale(0.94);
+}
+
+html[data-theme-mode="dark"] .dock-btn-icon {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.095) 0%,
+    rgba(255, 255, 255, 0.045) 100%
+  );
+  color: rgba(255, 255, 255, 0.72);
+  border-color: rgba(255, 255, 255, 0.11);
+  box-shadow:
+    0 3px 10px -2px rgba(0, 0, 0, 0.36),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+html[data-theme-mode="dark"] .dock-btn-icon:hover {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.22);
+  box-shadow:
+    0 5px 14px -2px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.dock-btn-icon-favorited {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 241, 244, 0.98) 0%,
+    rgba(255, 226, 232, 0.94) 100%
+  ) !important;
+  color: #fa2d48 !important;
+  border-color: rgba(250, 45, 72, 0.26) !important;
+  box-shadow:
+    0 4px 12px -2px rgba(250, 45, 72, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95) !important;
+}
+
+html[data-theme-mode="dark"] .dock-btn-icon-favorited {
+  background: linear-gradient(
+    180deg,
+    rgba(250, 45, 72, 0.24) 0%,
+    rgba(250, 45, 72, 0.12) 100%
+  ) !important;
+  color: #ff4560 !important;
+  border-color: rgba(250, 45, 72, 0.38) !important;
+  box-shadow:
+    0 4px 14px -2px rgba(250, 45, 72, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+}
+
+.dock-nav-active-pill {
+  background: linear-gradient(180deg, #ffffff 0%, #f4f6fa 100%);
+  border: 1px solid rgba(15, 23, 42, 0.075);
+  box-shadow:
+    0 3px 10px -2px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 #ffffff;
+}
+
+html[data-theme-mode="dark"] .dock-nav-active-pill {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.14) 0%,
+    rgba(255, 255, 255, 0.07) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 4px 12px -2px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
 }
 
 .theme-modal {
