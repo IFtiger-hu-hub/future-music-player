@@ -1,6 +1,15 @@
 import React from 'react';
-import { Plus, RefreshCw, Play, Shuffle, Disc3, ArrowLeft } from 'lucide-react';
+import {
+  Plus,
+  RefreshCw,
+  Play,
+  Shuffle,
+  Disc3,
+  ArrowLeft,
+  Loader2,
+} from 'lucide-react';
 import { usePlayerStore } from '../store/usePlayerStore';
+import { CanonicalTrack } from '../types/music';
 import { TrackTable } from '../components/TrackTable';
 
 export const PlaylistsView: React.FC = () => {
@@ -15,6 +24,9 @@ export const PlaylistsView: React.FC = () => {
   const triggerHuaweiSync = usePlayerStore((s) => s.triggerHuaweiSync);
   const setHuaweiAuthModalOpen = usePlayerStore((s) => s.setHuaweiAuthModalOpen);
   const playTrack = usePlayerStore((s) => s.playTrack);
+  const isLoadingPlaylistDetail = usePlayerStore(
+    (s) => s.isLoadingPlaylistDetail
+  );
 
   const isLocal = activeNav === 'local_playlists';
   const huaweiSource = sources.find((s) => s.id === 'huawei')!;
@@ -25,9 +37,12 @@ export const PlaylistsView: React.FC = () => {
     playlists.find((p) => p.id === selectedPlaylistId) ||
     visiblePlaylists[0] ||
     playlists[0];
-  const activeTracks = tracks.filter((t) =>
-    activePl ? activePl.trackIds.includes(t.id) : false
-  );
+  const trackMap = new Map(tracks.map((t) => [t.id, t]));
+  const activeTracks = activePl
+    ? activePl.trackIds
+        .map((id) => trackMap.get(id))
+        .filter((t): t is CanonicalTrack => Boolean(t))
+    : [];
 
   return (
     <div className="space-y-6">
@@ -185,7 +200,13 @@ export const PlaylistsView: React.FC = () => {
           </div>
 
           {/* Right Detail Track Table */}
-          <div className="p-5 rounded-[24px] surface-bento min-w-0">
+          <div className="p-5 rounded-[24px] surface-bento min-w-0 space-y-3">
+            {isLoadingPlaylistDetail && (
+              <div className="px-4 py-3 rounded-[16px] bg-[#FA2D48]/10 border border-[#FA2D48]/20 text-[12.5px] font-semibold text-[#FA2D48] flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                <span>正在从华为音乐云端拉取歌单真实曲目列表...</span>
+              </div>
+            )}
             <TrackTable tracks={activeTracks} />
           </div>
         </div>

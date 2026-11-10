@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Play,
   Radio,
@@ -13,6 +13,10 @@ import {
   QrCode,
 } from 'lucide-react';
 import { usePlayerStore } from '../store/usePlayerStore';
+import {
+  HuaweiRecommendedPlaylistCard,
+  musicGateway,
+} from '../services/musicGateway';
 import { TrackTable } from '../components/TrackTable';
 
 const HARMONY_CATEGORY_PILLS = [
@@ -23,42 +27,70 @@ const HARMONY_CATEGORY_PILLS = [
   { id: 'categories', label: '分类', icon: LayoutGrid },
 ] as const;
 
-const HI_RAVEN_CARDS = [
+const DEFAULT_HUAWEI_RECOMMENDED_PLAYLISTS: HuaweiRecommendedPlaylistCard[] = [
   {
-    id: 'raven_1',
-    title: '天生不庸俗，人间烟火里的浪漫情怀',
-    playCount: '327.9万',
+    id: 'pl_hw_LWPp-V39aVeVP9IRL',
+    sourcePlaylistId: 'LWPp-V39aVeVP9IRL',
+    title: '「华语精选」那些年你单曲循环过的歌',
+    description:
+      '这些歌从学生时代就一直存在于播放器中，每一首都值得单曲循环的华语珍藏歌单。',
+    playCount: '630.4万',
+    trackCount: 57,
     coverUrl:
-      'https://images.unsplash.com/photo-1517483000871-1dbf64a6e1c6?w=500&auto=format&fit=crop&q=80',
+      'https://contentcenter-drcn.dbankcdn.cn/img/pub_1/HW-Music_pgcsonglistcover_100_1/3/v3/fpEuFm2WQRKAlD0dbQkyzw/b47fe3a1-d2f0-45ae-9a5c-80b6129720a1.jpg/music_pgcsonglistcover_500x500.webp',
   },
   {
-    id: 'raven_2',
-    title: '用千万次的回眸换得今生擦肩',
-    playCount: '184.2万',
+    id: 'pl_hw_MaD_RNL1AAJ9pR6gT',
+    sourcePlaylistId: 'MaD_RNL1AAJ9pR6gT',
+    title: '环球音乐·华语精选',
+    description:
+      '环球音乐旅行到达华语站，精选环球唱片旗下华语乐坛最流行、最经典的无损金曲。',
+    playCount: '3616.8万',
+    trackCount: 68,
     coverUrl:
-      'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=500&auto=format&fit=crop&q=80',
+      'https://contentcenter-drcn.dbankcdn.cn/img/pub_1/HW-Music_pgcsonglistcover_100_1/0/v3/GFK31hk6Tq-aDFCvPAVwRQ/e0e353d0-f67a-4c02-91c3-2531438a54c3.jpg/music_pgcsonglistcover_500x500.webp',
   },
   {
-    id: 'raven_3',
-    title: '午间温柔 | 把耳机里的浪漫留给人间',
-    playCount: '256.0万',
+    id: 'pl_hw_u.MIJnNpl_u9NsaljIn',
+    sourcePlaylistId: 'u.MIJnNpl_u9NsaljIn',
+    title: '【治愈华语】自己买花，自己长大',
+    description:
+      '一个人的时候更要好好爱自己，心怀宇宙浪漫，至少还有星月可以寄望。',
+    playCount: '1938.9万',
+    trackCount: 30,
     coverUrl:
-      'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500&auto=format&fit=crop&q=80',
+      'https://music-pics-drcn.dbankcdn.cn/image/d8/5c/F97CA101DC4DD4ECE715D19FFBA6C999_middleImage.jpg',
   },
   {
-    id: 'raven_4',
-    title: '趁微风不噪，去见想见的人',
-    playCount: '142.8万',
+    id: 'pl_hw_u.MH2uscz9HzxbaLlSI',
+    sourcePlaylistId: 'u.MH2uscz9HzxbaLlSI',
+    title: '华语精选 · 90后老歌仓库',
+    description:
+      '怀旧不是因为那个时代多么好，而是那个时候你正年轻，收录 90 后时代金曲。',
+    playCount: '2836.9万',
+    trackCount: 30,
     coverUrl:
-      'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=500&auto=format&fit=crop&q=80',
+      'https://music-pics-drcn.dbankcdn.cn/image/aa/a1/DD673B6698D18893DA135571B8854E38_bigIcon.jpg',
   },
   {
-    id: 'raven_5',
-    title: '温柔的晚风吹散白日里的疲惫',
-    playCount: '98.6万',
+    id: 'pl_hw_u.NKO5y2uQsrxR35KoS',
+    sourcePlaylistId: 'u.NKO5y2uQsrxR35KoS',
+    title: '治愈华语：让歌声给岁月写满柔情',
+    description:
+      '保持积极不代表你要一直快乐，而是即使在最艰难的日子也相信会有变好的那天。',
+    playCount: '2017.1万',
+    trackCount: 20,
     coverUrl:
-      'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=500&auto=format&fit=crop&q=80',
+      'https://music-pics-drcn.dbankcdn.cn/image/90/42/28708724C1C97BB09398395E2F83A82A_middleImage.jpg',
   },
+];
+
+const RECOMMENDATION_TOPICS = [
+  '华语精选',
+  '治愈华语',
+  '粤语经典',
+  '欧美流行',
+  '热门歌单',
 ];
 
 const FEATURED_ARTISTS = [
@@ -118,6 +150,37 @@ export const FavoritesView: React.FC = () => {
 
   const [activeCategory, setActiveCategory] = useState<string>('featured');
   const [artistFilter, setArtistFilter] = useState<string | null>(null);
+  const [recommendedCards, setRecommendedCards] = useState<
+    HuaweiRecommendedPlaylistCard[]
+  >(DEFAULT_HUAWEI_RECOMMENDED_PLAYLISTS);
+  const [topicIdx, setTopicIdx] = useState<number>(0);
+  const [isRefreshingRecs, setIsRefreshingRecs] = useState<boolean>(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    musicGateway.fetchHuaweiRecommendations('华语精选').then((list) => {
+      if (!cancelled && list.length >= 5) {
+        setRecommendedCards(list.slice(0, 5));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const refreshRecommendations = async () => {
+    if (isRefreshingRecs) return;
+    setIsRefreshingRecs(true);
+    const nextIdx = (topicIdx + 1) % RECOMMENDATION_TOPICS.length;
+    setTopicIdx(nextIdx);
+    const list = await musicGateway.fetchHuaweiRecommendations(
+      RECOMMENDATION_TOPICS[nextIdx]
+    );
+    if (list.length >= 5) {
+      setRecommendedCards(list.slice(0, 5));
+    }
+    setIsRefreshingRecs(false);
+  };
 
   const sourceFilteredTracks =
     activeSourceFilter === 'all'
@@ -161,13 +224,15 @@ export const FavoritesView: React.FC = () => {
         {/* Card 1: 现在就听 (Music FM Deep Twilight Navy Card) */}
         <div
           onClick={() =>
-            openCuratedPlaylist({
+            void openCuratedPlaylist({
               id: 'pl_hero_listen_now',
-              name: '现在就听 · Music FM 私人电台',
-              description: '根据您的华为音乐无损听歌品味实时编排的私人无损电台列表',
+              sourcePlaylistId: 'N0dkEOhQ6HMFtiDAb',
+              name: '现在就听 · 华语流行神曲电台',
+              description:
+                '实时拉取华为音乐官方《华语流行神曲》歌单真实曲目，支持无损 FLAC 与逐字歌词',
               coverUrl:
                 displayTracks[0]?.coverUrl ||
-                'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=500&auto=format&fit=crop&q=80',
+                'https://contentcenter-drcn.dbankcdn.cn/img/pub_1/HW-Music_pgcsonglistcover_100_1/ec/v3/Xc6DsPobTyqPXJx__K65lg/732edf4c-b19d-49fd-814d-b7402d032543.jpg/music_pgcsonglistcover_500x500.webp',
               trackIds: buildTrackSlice(0, 25),
             })
           }
@@ -183,7 +248,7 @@ export const FavoritesView: React.FC = () => {
               <span>Music FM</span>
             </span>
             <span className="text-[10.5px] !text-white/55 opacity-0 group-hover:opacity-100 transition-opacity">
-              查看列表 ›
+              查看 36 首真实曲目 ›
             </span>
           </div>
 
@@ -203,7 +268,7 @@ export const FavoritesView: React.FC = () => {
               <img
                 src={
                   displayTracks[0]?.coverUrl ||
-                  'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=500&auto=format&fit=crop&q=80'
+                  'https://contentcenter-drcn.dbankcdn.cn/img/pub_1/HW-Music_pgcsonglistcover_100_1/ec/v3/Xc6DsPobTyqPXJx__K65lg/732edf4c-b19d-49fd-814d-b7402d032543.jpg/music_pgcsonglistcover_500x500.webp'
                 }
                 alt="现在就听"
                 className="w-full h-full object-cover"
@@ -230,7 +295,7 @@ export const FavoritesView: React.FC = () => {
               <div className="text-[11.5px] !text-white/70 truncate mt-0.5">
                 {displayTracks[0]
                   ? `${displayTracks[0].title} - ${displayTracks[0].artists.join('/')}`
-                  : 'Flowers - Miley Cyrus'}
+                  : '爱情36计 - 蔡依林'}
               </div>
             </div>
             <button
@@ -238,7 +303,17 @@ export const FavoritesView: React.FC = () => {
               title="立即播放"
               onClick={(e) => {
                 e.stopPropagation();
-                playRandomOrIndex(0);
+                void openCuratedPlaylist({
+                  id: 'pl_hero_listen_now',
+                  sourcePlaylistId: 'N0dkEOhQ6HMFtiDAb',
+                  name: '现在就听 · 华语流行神曲电台',
+                  description: '华为音乐官方《华语流行神曲》歌单真实曲目',
+                  coverUrl:
+                    displayTracks[0]?.coverUrl ||
+                    'https://contentcenter-drcn.dbankcdn.cn/img/pub_1/HW-Music_pgcsonglistcover_100_1/ec/v3/Xc6DsPobTyqPXJx__K65lg/732edf4c-b19d-49fd-814d-b7402d032543.jpg/music_pgcsonglistcover_500x500.webp',
+                  trackIds: buildTrackSlice(0, 25),
+                  autoPlayFirst: true,
+                });
               }}
               className="w-9 h-9 rounded-full btn-play-fab text-[#172340] flex items-center justify-center shrink-0 cursor-pointer"
             >
@@ -250,14 +325,15 @@ export const FavoritesView: React.FC = () => {
         {/* Card 2: 每日30首 (Dual-Split Atmospheric Calendar Card) */}
         <div
           onClick={() =>
-            openCuratedPlaylist({
+            void openCuratedPlaylist({
               id: 'pl_hero_daily_30',
-              name: '每日 30 首 · 专属定制歌单',
-              description: '每日清晨为您更新 30 首跨音源无损精选单曲',
+              sourcePlaylistId: 'u.Mese7_VQp0taJIdcK',
+              name: '每日 30 首 · 华语宝藏热歌每日一听',
+              description:
+                '实时同步华为音乐官方《宝藏热歌每日一听》真实曲库，每日更新无损金曲',
               coverUrl:
-                displayTracks[1]?.coverUrl ||
-                'https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=500&auto=format&fit=crop&q=80',
-              trackIds: buildTrackSlice(1, 30),
+                'https://contentcenter-drcn.dbankcdn.cn/img/pub_1/HW-Music_pgcsonglistcover_100_1/3a/v3/n-3pdnO7TU6SAZM9QQfayg/30f7e79a-75e9-4dde-81e9-8a4040406cf6.jpg/music_pgcsonglistcover_500x500.webp',
+              trackIds: [],
             })
           }
           className="relative h-[264px] xl:h-[280px] rounded-[22px] p-5 flex flex-col justify-between overflow-hidden shadow-[0_14px_34px_rgba(74,107,136,0.2)] ring-1 ring-white/15 group cursor-pointer select-none transition-transform duration-300 hover:-translate-y-0.5"
@@ -293,7 +369,7 @@ export const FavoritesView: React.FC = () => {
 
           <div className="relative z-10 flex items-center justify-end">
             <span className="text-[10.5px] font-semibold !text-white/65 opacity-0 group-hover:opacity-100 transition-opacity">
-              查看 30 首 ›
+              查看实时歌单 ›
             </span>
           </div>
 
@@ -314,7 +390,7 @@ export const FavoritesView: React.FC = () => {
               <div className="text-[11.5px] !text-white/75 truncate mt-0.5">
                 {displayTracks[1]
                   ? `${displayTracks[1].title} - ${displayTracks[1].artists.join('/')}`
-                  : 'Spy (No Intro) - Kyle/Lil Yachty'}
+                  : '华语流行｜宝藏热歌每日一听'}
               </div>
             </div>
             <button
@@ -322,7 +398,16 @@ export const FavoritesView: React.FC = () => {
               title="立即播放"
               onClick={(e) => {
                 e.stopPropagation();
-                playRandomOrIndex(1);
+                void openCuratedPlaylist({
+                  id: 'pl_hero_daily_30',
+                  sourcePlaylistId: 'u.Mese7_VQp0taJIdcK',
+                  name: '每日 30 首 · 华语宝藏热歌每日一听',
+                  description: '华为音乐官方《宝藏热歌每日一听》真实曲库',
+                  coverUrl:
+                    'https://contentcenter-drcn.dbankcdn.cn/img/pub_1/HW-Music_pgcsonglistcover_100_1/3a/v3/n-3pdnO7TU6SAZM9QQfayg/30f7e79a-75e9-4dde-81e9-8a4040406cf6.jpg/music_pgcsonglistcover_500x500.webp',
+                  trackIds: [],
+                  autoPlayFirst: true,
+                });
               }}
               className="w-9 h-9 rounded-full btn-play-fab text-[#44596D] flex items-center justify-center shrink-0 cursor-pointer"
             >
@@ -334,14 +419,15 @@ export const FavoritesView: React.FC = () => {
         {/* Card 3: 新歌推荐 (Plum Burgundy + Transparent CD Jewel Case) */}
         <div
           onClick={() =>
-            openCuratedPlaylist({
+            void openCuratedPlaylist({
               id: 'pl_hero_new_releases',
-              name: '新歌推荐 · Hi-Res 首发臻选',
-              description: '华语与全球最新上架 SQ / Hi-Res 无损新歌合集',
+              sourcePlaylistId: 'O4PIWQ-1wQD9T9k-F',
+              name: '新歌推荐 · 华语流行新声',
+              description:
+                '实时拉取华为音乐官方《华语流行新声》首发歌单 37 首真实曲目',
               coverUrl:
-                displayTracks[2]?.coverUrl ||
-                'https://images.unsplash.com/photo-1557672172-298e090bd0f1?w=500&auto=format&fit=crop&q=80',
-              trackIds: buildTrackSlice(2, 24),
+                'https://contentcenter-drcn.dbankcdn.cn/img/pub_1/HW-Music_pgcsonglistcover_100_1/fe/v3/UxWSW8twQ9iswdT47gEwmg/b8bc9588-31fc-4324-a61a-3eff11c70c12.jpg/music_pgcsonglistcover_500x500.webp',
+              trackIds: [],
             })
           }
           style={{
@@ -356,7 +442,7 @@ export const FavoritesView: React.FC = () => {
               <span>NEW</span>
             </span>
             <span className="text-[10.5px] font-semibold !text-white/60 opacity-0 group-hover:opacity-100 transition-opacity">
-              查看列表 ›
+              查看 37 首新歌 ›
             </span>
           </div>
 
@@ -370,7 +456,7 @@ export const FavoritesView: React.FC = () => {
                 <img
                   src={
                     displayTracks[2]?.coverUrl ||
-                    'https://images.unsplash.com/photo-1557672172-298e090bd0f1?w=500&auto=format&fit=crop&q=80'
+                    'https://contentcenter-drcn.dbankcdn.cn/img/pub_1/HW-Music_pgcsonglistcover_100_1/fe/v3/UxWSW8twQ9iswdT47gEwmg/b8bc9588-31fc-4324-a61a-3eff11c70c12.jpg/music_pgcsonglistcover_500x500.webp'
                   }
                   alt="新歌推荐"
                   className="w-full h-full object-cover"
@@ -387,7 +473,7 @@ export const FavoritesView: React.FC = () => {
               <div className="text-[11.5px] !text-white/75 truncate mt-0.5">
                 {displayTracks[2]
                   ? `${displayTracks[2].title} - ${displayTracks[2].artists.join('/')}`
-                  : '崇拜 (新版) - 薛之谦'}
+                  : '华语流行新声 · 官方首发'}
               </div>
             </div>
             <button
@@ -395,7 +481,16 @@ export const FavoritesView: React.FC = () => {
               title="立即播放"
               onClick={(e) => {
                 e.stopPropagation();
-                playRandomOrIndex(2);
+                void openCuratedPlaylist({
+                  id: 'pl_hero_new_releases',
+                  sourcePlaylistId: 'O4PIWQ-1wQD9T9k-F',
+                  name: '新歌推荐 · 华语流行新声',
+                  description: '华为音乐官方《华语流行新声》首发歌单真实曲目',
+                  coverUrl:
+                    'https://contentcenter-drcn.dbankcdn.cn/img/pub_1/HW-Music_pgcsonglistcover_100_1/fe/v3/UxWSW8twQ9iswdT47gEwmg/b8bc9588-31fc-4324-a61a-3eff11c70c12.jpg/music_pgcsonglistcover_500x500.webp',
+                  trackIds: [],
+                  autoPlayFirst: true,
+                });
               }}
               className="w-9 h-9 rounded-full btn-play-fab text-[#5A2B48] flex items-center justify-center shrink-0 cursor-pointer"
             >
@@ -407,14 +502,15 @@ export const FavoritesView: React.FC = () => {
         {/* Card 4: 心动模式 (Warm Canyon Amber & Crimson Silk Waves) */}
         <div
           onClick={() =>
-            openCuratedPlaylist({
+            void openCuratedPlaylist({
               id: 'pl_hero_heartbeat_radar',
-              name: '心动模式 · Hi-Res 心动雷达',
-              description: '从您红心收藏的旋律基因出发，发现熟悉的惊喜与共鸣',
+              sourcePlaylistId: 'u.M_uZkeuvWMKgF2oyJ',
+              name: '心动模式 · 治愈华语心动雷达',
+              description:
+                '实时拉取华为音乐《治愈华语 | 时光清浅，感恩遇见》40 首真实高共鸣金曲',
               coverUrl:
-                displayTracks[3]?.coverUrl ||
-                'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=600&auto=format&fit=crop&q=80',
-              trackIds: buildTrackSlice(3, 25),
+                'https://music-pics-drcn.dbankcdn.cn/image/11/3f/D953BC2059A798D535B2952CE704AC58_middleImage.jpg',
+              trackIds: [],
             })
           }
           style={{
@@ -436,7 +532,7 @@ export const FavoritesView: React.FC = () => {
               <span>Hi-Res 心动雷达</span>
             </span>
             <span className="text-[10.5px] !text-white/65 opacity-0 group-hover:opacity-100 transition-opacity">
-              查看列表 ›
+              查看 40 首真实曲目 ›
             </span>
           </div>
 
@@ -450,7 +546,7 @@ export const FavoritesView: React.FC = () => {
               <div className="text-[11.5px] !text-white/75 truncate mt-0.5">
                 {displayTracks[3]
                   ? `${displayTracks[3].title} - ${displayTracks[3].artists.join('/')}`
-                  : 'Makeba (Ian Asher Remix) - Jain'}
+                  : '陪你度过漫长岁月 - 陈奕迅'}
               </div>
             </div>
             <button
@@ -458,7 +554,17 @@ export const FavoritesView: React.FC = () => {
               title="立即播放"
               onClick={(e) => {
                 e.stopPropagation();
-                playRandomOrIndex(3);
+                void openCuratedPlaylist({
+                  id: 'pl_hero_heartbeat_radar',
+                  sourcePlaylistId: 'u.M_uZkeuvWMKgF2oyJ',
+                  name: '心动模式 · 治愈华语心动雷达',
+                  description:
+                    '华为音乐《治愈华语 | 时光清浅，感恩遇见》真实曲库',
+                  coverUrl:
+                    'https://music-pics-drcn.dbankcdn.cn/image/11/3f/D953BC2059A798D535B2952CE704AC58_middleImage.jpg',
+                  trackIds: [],
+                  autoPlayFirst: true,
+                });
               }}
               className="w-9 h-9 rounded-full btn-play-fab text-[#8E1B20] flex items-center justify-center shrink-0 cursor-pointer"
             >
@@ -590,36 +696,53 @@ export const FavoritesView: React.FC = () => {
             <ChevronRight className="w-4 h-4 text-white/45 group-hover:translate-x-0.5 transition-transform" />
           </button>
 
-          {huaweiSource.loggedIn ? (
+          <div className="flex items-center gap-2 flex-wrap">
             <button
-              onClick={triggerHuaweiSync}
-              className="h-8.5 px-4 rounded-full btn-harmony-secondary text-[12px] font-semibold flex items-center gap-1.5 cursor-pointer"
+              onClick={() => void refreshRecommendations()}
+              disabled={isRefreshingRecs}
+              className="h-8.5 px-3.5 rounded-full btn-harmony-secondary text-[12px] font-semibold flex items-center gap-1.5 cursor-pointer"
+              title="从华为音乐云端换一批真实推荐歌单"
             >
-              <RefreshCw className="w-3.5 h-3.5 text-white/65" />
-              <span>同步华为云端资产</span>
+              <RefreshCw
+                className={`w-3.5 h-3.5 text-white/65 ${
+                  isRefreshingRecs ? 'animate-spin' : ''
+                }`}
+              />
+              <span>换一批推荐 ({RECOMMENDATION_TOPICS[topicIdx]})</span>
             </button>
-          ) : (
-            <button
-              onClick={() => setHuaweiAuthModalOpen(true)}
-              className="h-8.5 px-4 rounded-full btn-harmony-secondary text-[12px] font-semibold flex items-center gap-1.5 cursor-pointer"
-            >
-              <QrCode className="w-3.5 h-3.5 text-[#FA2D48]" />
-              <span>扫码同步华为「我喜欢」</span>
-            </button>
-          )}
+
+            {huaweiSource.loggedIn ? (
+              <button
+                onClick={triggerHuaweiSync}
+                className="h-8.5 px-4 rounded-full btn-harmony-secondary text-[12px] font-semibold flex items-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-white/65" />
+                <span>同步华为云端资产</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => setHuaweiAuthModalOpen(true)}
+                className="h-8.5 px-4 rounded-full btn-harmony-secondary text-[12px] font-semibold flex items-center gap-1.5 cursor-pointer"
+              >
+                <QrCode className="w-3.5 h-3.5 text-[#FA2D48]" />
+                <span>扫码同步华为「我喜欢」</span>
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
-          {HI_RAVEN_CARDS.map((card, idx) => (
+          {recommendedCards.map((card) => (
             <div
               key={card.id}
               onClick={() =>
-                openCuratedPlaylist({
-                  id: `pl_${card.id}`,
+                void openCuratedPlaylist({
+                  id: card.id,
+                  sourcePlaylistId: card.sourcePlaylistId,
                   name: card.title,
-                  description: `Hi Raven 专属氛围推荐歌单 · 累计播放 ${card.playCount}`,
+                  description: `${card.description} · 华为音乐播放 ${card.playCount}`,
                   coverUrl: card.coverUrl,
-                  trackIds: buildTrackSlice(idx * 3, 18),
+                  trackIds: [],
                 })
               }
               className="group cursor-pointer space-y-2.5"
@@ -639,14 +762,22 @@ export const FavoritesView: React.FC = () => {
                   <span>{card.playCount}</span>
                 </div>
 
-                {/* Bottom-Right Quick Play FAB (Stops propagation so clicking play starts music immediately, while clicking cover opens playlist) */}
+                {/* Bottom-Right Quick Play FAB (Fetches real Huawei playlist songs & plays immediately) */}
                 <button
                   type="button"
-                  title="直接播放此歌单"
+                  title="直接播放此真实歌单"
                   aria-label={`播放 ${card.title}`}
                   onClick={(e) => {
                     e.stopPropagation();
-                    playRandomOrIndex(idx * 3);
+                    void openCuratedPlaylist({
+                      id: card.id,
+                      sourcePlaylistId: card.sourcePlaylistId,
+                      name: card.title,
+                      description: `${card.description} · 华为音乐播放 ${card.playCount}`,
+                      coverUrl: card.coverUrl,
+                      trackIds: [],
+                      autoPlayFirst: true,
+                    });
                   }}
                   className="absolute bottom-2.5 right-2.5 w-8.5 h-8.5 rounded-full btn-play-fab text-[#18181A] flex items-center justify-center opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-200 cursor-pointer"
                 >

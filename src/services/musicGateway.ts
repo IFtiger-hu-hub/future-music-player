@@ -48,6 +48,26 @@ export interface LocalScanResult {
   tracks: CanonicalTrack[];
 }
 
+export interface HuaweiRecommendedPlaylistCard {
+  id: string;
+  sourcePlaylistId: string;
+  title: string;
+  description: string;
+  coverUrl: string;
+  trackCount: number;
+  playCount: string;
+}
+
+export interface HuaweiPlaylistDetailResult {
+  ok: boolean;
+  playlistId: string;
+  sourcePlaylistId: string;
+  name: string;
+  description: string;
+  coverUrl: string;
+  tracks: CanonicalTrack[];
+}
+
 function mapRawTracks(rawTracks: any[]): CanonicalTrack[] {
   return (rawTracks || []).map((t: any): CanonicalTrack => {
     const isLocal = t.source === 'local';
@@ -136,6 +156,87 @@ export const musicGateway = {
 
     if (!Array.isArray(data?.tracks)) return [];
     return mapRawTracks(data.tracks).map((t) => ({ ...t, isFavorite: false }));
+  },
+
+  async fetchHuaweiRecommendations(
+    query = '华语精选'
+  ): Promise<HuaweiRecommendedPlaylistCard[]> {
+    try {
+      let data: any = null;
+      if (isTauriRuntime()) {
+        try {
+          data = await invoke('fetch_huawei_recommendations', { query });
+        } catch {
+          data = null;
+        }
+      }
+      if (!data) {
+        const res = await fetch(apiUrl('/api/huawei/recommendations'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query }),
+        });
+        if (res.ok) {
+          data = await res.json();
+        }
+      }
+      if (!Array.isArray(data?.playlists)) return [];
+      return data.playlists.map(
+        (p: any): HuaweiRecommendedPlaylistCard => ({
+          id: p.id || `pl_hw_${p.sourcePlaylistId}`,
+          sourcePlaylistId: p.sourcePlaylistId || p.id,
+          title: p.title || p.name || '华为音乐精选歌单',
+          description: p.description || '来自华为音乐官方曲库',
+          coverUrl: p.coverUrl || DEFAULT_HUAWEI_COVER,
+          trackCount: Number(p.trackCount) || 30,
+          playCount: p.playCount || '热门',
+        })
+      );
+    } catch {
+      return [];
+    }
+  },
+
+  async fetchHuaweiPlaylistDetail(
+    playlistId: string
+  ): Promise<HuaweiPlaylistDetailResult | null> {
+    if (!playlistId) return null;
+    try {
+      let data: any = null;
+      if (isTauriRuntime()) {
+        try {
+          data = await invoke('fetch_huawei_playlist_detail', { playlistId });
+        } catch {
+          data = null;
+        }
+      }
+      if (!data) {
+        const res = await fetch(apiUrl('/api/huawei/playlist/detail'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ playlistId }),
+        });
+        if (res.ok) {
+          data = await res.json();
+        }
+      }
+      if (!data?.ok || !Array.isArray(data.tracks)) return null;
+      const tracks = mapRawTracks(data.tracks).map((t) => ({
+        ...t,
+        isFavorite: false,
+      }));
+      return {
+        ok: true,
+        playlistId: data.playlistId || `pl_hw_${playlistId}`,
+        sourcePlaylistId: data.sourcePlaylistId || playlistId,
+        name: data.name || '',
+        description: data.description || '',
+        coverUrl: data.coverUrl || tracks[0]?.coverUrl || DEFAULT_HUAWEI_COVER,
+        tracks,
+      };
+    } catch {
+      return null;
+    }
   },
 
   async resolveTrackStream(params: {
@@ -343,6 +444,7 @@ export const musicGateway = {
     description: string;
     trackIds: string[];
   }): Promise<void> {
+    if ((import.meta as any).env?.MODE === 'test') return;
     try {
       if (isTauriRuntime()) {
         await invoke('save_local_playlist', { args: playlist });

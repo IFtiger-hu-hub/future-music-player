@@ -114,6 +114,7 @@ export interface PlayerState {
   isImportModalOpen: boolean;
   isSyncingHuawei: boolean;
   isResolvingAudio: boolean;
+  isLoadingPlaylistDetail: boolean;
 
   // Appearance, Desktop Lyric, 10-Band EQ & Merge Audit
   themeId: ThemeId;
@@ -173,12 +174,14 @@ export interface PlayerState {
   addTrackToLocalPlaylist: (playlistId: string, trackId: string) => void;
   openCuratedPlaylist: (spec: {
     id: string;
+    sourcePlaylistId?: string;
     name: string;
     description: string;
     coverUrl: string;
     trackIds: string[];
     kind?: 'local' | 'imported';
-  }) => void;
+    autoPlayFirst?: boolean;
+  }) => Promise<void>;
 
   resolveTrackStream: (
     track: CanonicalTrack,
@@ -223,6 +226,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   isImportModalOpen: false,
   isSyncingHuawei: false,
   isResolvingAudio: false,
+  isLoadingPlaylistDetail: false,
 
   themeId: initialAppearance.themeId,
   fontScale: initialAppearance.fontScale,
@@ -436,56 +440,140 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     }
   },
 
-  openCuratedPlaylist: (spec) => {
+  openCuratedPlaylist: async (spec) => {
     const kind = spec.kind || 'local';
     const targetNav: NavSection =
       kind === 'imported' ? 'imported_playlists' : 'local_playlists';
+    const shouldFetchRemote = Boolean(spec.sourcePlaylistId);
 
-    set((state) => {
-      const existing = state.playlists.find((p) => p.id === spec.id);
-      const fallbackTrackIds =
-        spec.trackIds.length > 0
-          ? spec.trackIds
-          : state.tracks.slice(0, 30).map((t) => t.id);
+    if (!spec.autoPlayFirst) {
+      set((state) => {
+        const existing = state.playlists.find((p) => p.id === spec.id);
+        const initialTrackIds =
+          existing && existing.trackIds.length > 0 && !shouldFetchRemote
+            ? existing.trackIds
+            : spec.trackIds.length > 0
+              ? spec.trackIds
+              : existing?.trackIds || [];
 
-      const nextPlaylist: PlaylistItem = existing
-        ? {
-            ...existing,
-            name: spec.name || existing.name,
-            description: spec.description || existing.description,
-            coverUrl: spec.coverUrl || existing.coverUrl,
-            trackIds:
-              existing.trackIds.length > 0 ? existing.trackIds : fallbackTrackIds,
-            trackCount:
-              existing.trackIds.length > 0
-                ? existing.trackIds.length
-                : fallbackTrackIds.length,
+        const nextPlaylist: PlaylistItem = existing
+          ? {
+              ...existing,
+              name: spec.name || existing.name,
+              description: spec.description || existing.description,
+              coverUrl: spec.coverUrl || existing.coverUrl,
+              trackIds: initialTrackIds,
+              trackCount: initialTrackIds.length || existing.trackCount,
+            }
+          : {
+              id: spec.id,
+              kind,
+              source: kind === 'imported' || shouldFetchRemote ? 'huawei' : 'local',
+              name: spec.name,
+              description: spec.description,
+              coverUrl:
+                spec.coverUrl ||
+                state.tracks[0]?.coverUrl ||
+                INITIAL_TRACKS[0].coverUrl,
+              trackCount: initialTrackIds.length,
+              updatedAt: shouldFetchRemote ? '华为音乐实时歌单' : '精选推荐',
+              trackIds: initialTrackIds,
+            };
+
+        const nextPlaylists = existing
+          ? state.playlists.map((p) => (p.id === spec.id ? nextPlaylist : p))
+          : [nextPlaylist, ...state.playlists];
+
+        const needsNetworkLoad =
+          shouldFetchRemote &&
+          (!existing || existing.updatedAt !== '华为云端真实曲目');
+
+        return {
+          playlists: nextPlaylists,
+          selectedPlaylistId: spec.id,
+          activeNav: targetNav,
+          isLoadingPlaylistDetail: needsNetworkLoad,
+        };
+      });
+    }
+
+    if (spec.sourcePlaylistId) {
+      const existing = get().playlists.find((p) => p.id === spec.id);
+      if (existing && existing.updatedAt === '华为云端真实曲目' && existing.trackIds.length > 0) {
+        set({ isLoadingPlaylistDetail: false });
+        if (spec.autoPlayFirst) {
+          const firstTrack = get().tracks.find((t) => t.id === existing.trackIds[0]);
+          if (firstTrack) {
+            get().playTrack(firstTrack);
           }
-        : {
+        }
+        return;
+      }
+
+      const detail = await musicGateway.fetchHuaweiPlaylistDetail(
+        spec.sourcePlaylistId
+      );
+      if (detail && detail.tracks.length > 0) {
+        const fetchedIds = detail.tracks.map((t) => t.id);
+        set((state) => {
+          const favIds = new Set(
+            state.tracks.filter((t) => t.isFavorite).map((t) => t.id)
+          );
+          const existingMap = new Map(state.tracks.map((t) => [t.id, t]));
+          for (const trk of detail.tracks) {
+            const prev = existingMap.get(trk.id);
+            existingMap.set(trk.id, {
+              ...trk,
+              isFavorite: favIds.has(trk.id) || Boolean(prev?.isFavorite),
+              audioUrl: prev?.audioUrl || trk.audioUrl,
+              lyrics:
+                prev && prev.lyrics.length > 1 ? prev.lyrics : trk.lyrics,
+            });
+          }
+          const mergedTracks = Array.from(existingMap.values());
+
+          const updatedPl: PlaylistItem = {
             id: spec.id,
             kind,
-            source: kind === 'imported' ? 'huawei' : 'local',
-            name: spec.name,
-            description: spec.description,
-            coverUrl:
-              spec.coverUrl ||
-              state.tracks[0]?.coverUrl ||
-              INITIAL_TRACKS[0].coverUrl,
-            trackCount: fallbackTrackIds.length,
-            updatedAt: '精选推荐',
-            trackIds: fallbackTrackIds,
+            source: 'huawei',
+            name: spec.name || detail.name || '华为音乐精选歌单',
+            description:
+              detail.description || spec.description || '华为音乐官方无损歌单',
+            coverUrl: spec.coverUrl || detail.coverUrl,
+            trackCount: fetchedIds.length,
+            updatedAt: '华为云端真实曲目',
+            trackIds: fetchedIds,
           };
 
-      const nextPlaylists = existing
-        ? state.playlists.map((p) => (p.id === spec.id ? nextPlaylist : p))
-        : [nextPlaylist, ...state.playlists];
+          const hasPl = state.playlists.some((p) => p.id === spec.id);
+          const nextPlaylists = hasPl
+            ? state.playlists.map((p) => (p.id === spec.id ? updatedPl : p))
+            : [updatedPl, ...state.playlists];
 
-      return {
-        playlists: nextPlaylists,
-        selectedPlaylistId: spec.id,
-        activeNav: targetNav,
-      };
-    });
+          return {
+            tracks: mergedTracks,
+            playlists: nextPlaylists,
+            isLoadingPlaylistDetail: false,
+          };
+        });
+
+        if (spec.autoPlayFirst) {
+          const first = get().tracks.find((t) => t.id === fetchedIds[0]) || detail.tracks[0];
+          if (first) {
+            get().playTrack(first);
+          }
+        }
+        return;
+      }
+      set({ isLoadingPlaylistDetail: false });
+    }
+
+    if (spec.autoPlayFirst && spec.trackIds.length > 0) {
+      const first = get().tracks.find((t) => t.id === spec.trackIds[0]);
+      if (first) {
+        get().playTrack(first);
+      }
+    }
   },
 
   resolveTrackStream: async (track, source, autoPlay = true) => {

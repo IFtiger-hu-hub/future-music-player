@@ -83,6 +83,16 @@ async fn search_huawei_catalog(query: String) -> Result<serde_json::Value, Strin
 }
 
 #[tauri::command]
+async fn fetch_huawei_recommendations(query: String) -> Result<serde_json::Value, String> {
+    bridge_server::handle_recommendations(&query).await
+}
+
+#[tauri::command]
+async fn fetch_huawei_playlist_detail(playlist_id: String) -> Result<serde_json::Value, String> {
+    bridge_server::handle_playlist_detail(&playlist_id).await
+}
+
+#[tauri::command]
 fn get_huawei_auth_contract(state: State<'_, AppRuntimeState>) -> HuaweiAuthPreview {
     let attempt = huawei::AuthAttempt::new(huawei::now_epoch_secs());
     let auth_url = attempt.authorize_url();
@@ -575,6 +585,8 @@ pub fn run() {
             resolve_huawei_track,
             sync_huawei_library,
             search_huawei_catalog,
+            fetch_huawei_recommendations,
+            fetch_huawei_playlist_detail,
             get_huawei_auth_contract,
             start_huawei_webview_login,
             submit_huawei_callback_url,

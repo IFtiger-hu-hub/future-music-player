@@ -737,6 +737,210 @@ pub async fn handle_search(query: &str) -> Result<Value, String> {
     Ok(json!({ "ok": true, "tracks": tracks }))
 }
 
+fn format_listen_count(raw_times: u64) -> String {
+    if raw_times >= 10_000 {
+        format!("{:.1}万", (raw_times as f64) / 10_000.0)
+    } else if raw_times > 0 {
+        format!("{}", raw_times)
+    } else {
+        "热门".into()
+    }
+}
+
+pub async fn handle_recommendations(query: &str) -> Result<Value, String> {
+    let q = if query.trim().is_empty() {
+        "华语精选"
+    } else {
+        query.trim()
+    };
+    let data = huawei_post(
+        "",
+        "/music-search-service/v10/service/fuzzysearch",
+        json!({
+            "contentType": "4",
+            "correct": "1",
+            "queryWord": q,
+            "start": "0",
+            "limit": "10"
+        }),
+    )
+    .await?;
+
+    let mut playlists = Vec::new();
+    if let Some(items) = data.get("musicListSimpleInfos").and_then(|v| v.as_array()) {
+        for p in items {
+            let pid = p
+                .get("contentID")
+                .or_else(|| p.get("musicListID"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            let title = p
+                .get("contentName")
+                .or_else(|| p.get("musicListName"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            if pid.is_empty() || title.is_empty() {
+                continue;
+            }
+            let mut cover = String::new();
+            if let Some(pic) = p.get("picture") {
+                for k in ["middleImgURL", "bigImgURL", "smallImgURL"] {
+                    if let Some(u) = pic.get(k).and_then(|v| v.as_str()) {
+                        if is_safe_resource_url(u) {
+                            cover = u
+                                .replace("music_pgcsonglistcover_1000x1000.", "music_pgcsonglistcover_500x500.")
+                                .replace("music_cover_1000x1000.", "music_cover_300x300.");
+                            break;
+                        }
+                    }
+                }
+            }
+            let total_count = p
+                .get("totalCount")
+                .or_else(|| p.get("playNum"))
+                .and_then(|v| {
+                    v.as_u64()
+                        .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
+                })
+                .unwrap_or(30);
+            let raw_times = p
+                .get("times")
+                .and_then(|v| {
+                    v.as_u64()
+                        .or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
+                })
+                .unwrap_or(1_280_000);
+            let desc = p
+                .get("description")
+                .or_else(|| p.get("listDesc"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("华为音乐官方精选无损歌单")
+                .replace("<br>", " ")
+                .trim()
+                .to_string();
+
+            playlists.push(json!({
+                "id": format!("pl_hw_{}", pid),
+                "sourcePlaylistId": pid,
+                "title": title,
+                "description": desc,
+                "coverUrl": cover,
+                "trackCount": total_count,
+                "playCount": format_listen_count(raw_times),
+            }));
+        }
+    }
+
+    Ok(json!({
+        "ok": true,
+        "playlists": playlists,
+    }))
+}
+
+pub async fn handle_playlist_detail(playlist_id: &str) -> Result<Value, String> {
+    let raw_id = playlist_id
+        .trim()
+        .strip_prefix("pl_hw_")
+        .or_else(|| playlist_id.trim().strip_prefix("pl_"))
+        .unwrap_or(playlist_id.trim());
+    if raw_id.is_empty() {
+        return Err("missing playlist id".into());
+    }
+
+    let detail = huawei_post(
+        "",
+        "/music-operation-service/v2/service/musiclist/detail/bymusiclistid",
+        json!({
+            "musicListID": raw_id,
+            "copyrightSwitch": "1",
+            "start": 0,
+            "limit": "50"
+        }),
+    )
+    .await
+    .unwrap_or_else(|_| json!({}));
+
+    let mut tracks = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let info = detail.get("musicListInfoEx").cloned().unwrap_or_else(|| json!({}));
+
+    if let Some(list) = info.get("songSimpleInfos").and_then(|v| v.as_array()) {
+        for item in list {
+            if let Some(norm) = normalize_provider_track(item) {
+                let cid = norm["sourceTrackId"].as_str().unwrap_or("").to_string();
+                if seen.insert(cid) {
+                    tracks.push(norm);
+                }
+            }
+        }
+    }
+
+    // Fallback to user playlist detail endpoint if needed
+    if tracks.is_empty() {
+        if let Some(sess) = load_persisted_session() {
+            let query_path = format!(
+                "/music-userbehavior-service/v1/service/playlist/detail/all?playListID={}&start=0&limit=50",
+                raw_id
+            );
+            if let Ok(u_detail) = huawei_get(&sess.token, &query_path).await {
+                if let Some(list) = u_detail
+                    .get("playListInfoEx")
+                    .and_then(|e| e.get("playListSongInfoList"))
+                    .and_then(|v| v.as_array())
+                {
+                    for item in list {
+                        if let Some(norm) = normalize_provider_track(item) {
+                            let cid = norm["sourceTrackId"].as_str().unwrap_or("").to_string();
+                            if seen.insert(cid) {
+                                tracks.push(norm);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let name = info
+        .get("musicListName")
+        .or_else(|| info.get("contentName"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let description = info
+        .get("listDesc")
+        .or_else(|| info.get("description"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .replace("<br>", " ")
+        .trim()
+        .to_string();
+    let mut cover = String::new();
+    if let Some(pic) = info.get("picture") {
+        for k in ["middleImgURL", "bigImgURL", "smallImgURL"] {
+            if let Some(u) = pic.get(k).and_then(|v| v.as_str()) {
+                if is_safe_resource_url(u) {
+                    cover = u.to_string();
+                    break;
+                }
+            }
+        }
+    }
+
+    Ok(json!({
+        "ok": true,
+        "playlistId": format!("pl_hw_{}", raw_id),
+        "sourcePlaylistId": raw_id,
+        "name": name,
+        "description": description,
+        "coverUrl": cover,
+        "tracks": tracks,
+    }))
+}
+
 fn send_json(mut stream: TcpStream, status: u16, payload: &Value) {
     let body = serde_json::to_vec(payload).unwrap_or_default();
     let status_text = match status {
@@ -996,6 +1200,28 @@ fn handle_client(mut stream: TcpStream) {
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             match tauri::async_runtime::block_on(handle_search(q)) {
+                Ok(val) => send_json(stream, 200, &val),
+                Err(e) => send_json(stream, 500, &json!({ "ok": false, "error": e })),
+            }
+        }
+        ("POST", "/api/huawei/recommendations") => {
+            let body_json: Value = serde_json::from_str(&body_part).unwrap_or_else(|_| json!({}));
+            let q = body_json
+                .get("query")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            match tauri::async_runtime::block_on(handle_recommendations(q)) {
+                Ok(val) => send_json(stream, 200, &val),
+                Err(e) => send_json(stream, 500, &json!({ "ok": false, "error": e })),
+            }
+        }
+        ("POST", "/api/huawei/playlist/detail") => {
+            let body_json: Value = serde_json::from_str(&body_part).unwrap_or_else(|_| json!({}));
+            let pid = body_json
+                .get("playlistId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            match tauri::async_runtime::block_on(handle_playlist_detail(pid)) {
                 Ok(val) => send_json(stream, 200, &val),
                 Err(e) => send_json(stream, 500, &json!({ "ok": false, "error": e })),
             }
