@@ -516,3 +516,100 @@ pub fn merge_lyric_subtitles(
     }
     hmrc_lines
 }
+
+/// Parses NetEase Cloud Music's `.yrc` word-by-word lyric format:
+/// `[lineStartMs,lineDurMs](wordStartMs,wordDurMs,0)word(wordStartMs,wordDurMs,0)word`
+pub fn parse_netease_yrc(raw: &str) -> Vec<LyricLine> {
+    let mut out = Vec::new();
+    for raw_line in raw.replace("\r\n", "\n").lines() {
+        let line = raw_line.trim();
+        if !line.starts_with('[') {
+            continue;
+        }
+        let Some(close_bracket) = line.find(']') else {
+            continue;
+        };
+        let Some((line_start, line_dur)) = parse_ms_pair(&line[1..close_bracket]) else {
+            continue;
+        };
+        let mut cursor = &line[close_bracket + 1..];
+        let mut words = Vec::new();
+        let mut full_text = String::new();
+
+        while let Some(open) = cursor.find('(') {
+            let after_open = &cursor[open..];
+            let Some(close_rel) = after_open.find(')') else {
+                break;
+            };
+            let meta = &after_open[1..close_rel];
+            let mut parts = meta.split(',');
+            let Some(w_start) = parts.next().and_then(|s| s.trim().parse::<u64>().ok()) else {
+                break;
+            };
+            let Some(w_dur) = parts.next().and_then(|s| s.trim().parse::<u64>().ok()) else {
+                break;
+            };
+            cursor = &after_open[close_rel + 1..];
+            let chunk = if let Some(next_open) = cursor.find('(') {
+                let c = &cursor[..next_open];
+                cursor = &cursor[next_open..];
+                c
+            } else {
+                let c = cursor;
+                cursor = "";
+                c
+            };
+            if chunk.is_empty() {
+                continue;
+            }
+            words.push(LyricWord {
+                text: chunk.to_string(),
+                start_ms: w_start,
+                end_ms: w_start + w_dur.max(15),
+            });
+            full_text.push_str(chunk);
+        }
+
+        let body = full_text.trim().to_string();
+        if body.is_empty() {
+            continue;
+        }
+        out.push(LyricLine {
+            time_ms: line_start,
+            end_ms: line_start + line_dur.max(500),
+            text: body,
+            romanization: None,
+            translation: None,
+            words,
+        });
+    }
+    for i in 0..out.len().saturating_sub(1) {
+        if out[i].end_ms > out[i + 1].time_ms && out[i + 1].time_ms > out[i].time_ms {
+            out[i].end_ms = out[i + 1].time_ms;
+        }
+    }
+    out
+}
+
+/// Merges timestamped romanization LRC lines (`romalrc`) into existing lyric lines.
+pub fn merge_lyric_romanizations(
+    mut base_lines: Vec<LyricLine>,
+    roma_lines: &[LyricLine],
+) -> Vec<LyricLine> {
+    if base_lines.is_empty() || roma_lines.is_empty() {
+        return base_lines;
+    }
+    for line in &mut base_lines {
+        if line.romanization.is_some() {
+            continue;
+        }
+        if let Some(cand) = roma_lines
+            .iter()
+            .filter(|r| r.time_ms.abs_diff(line.time_ms) <= 1800 && !r.text.trim().is_empty())
+            .min_by_key(|r| r.time_ms.abs_diff(line.time_ms))
+        {
+            line.romanization = Some(cand.text.trim().to_string());
+        }
+    }
+    base_lines
+}

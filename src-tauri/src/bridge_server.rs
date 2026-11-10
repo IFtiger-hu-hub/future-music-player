@@ -2,7 +2,10 @@ use crate::huawei::{
     build_music_digest_header, is_preview_stream, is_safe_resource_url, now_iso8601_utc,
     open_session, MusicSession, MUSIC_ENDPOINT,
 };
-use crate::lyrics::{merge_lyric_subtitles, parse_hmrc, parse_lrc, LyricLine};
+use crate::lyrics::{
+    merge_lyric_romanizations, merge_lyric_subtitles, parse_hmrc, parse_lrc, parse_netease_yrc,
+    LyricLine,
+};
 use base64::{engine::general_purpose::STANDARD as BASE64_STD, Engine as _};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -941,6 +944,975 @@ pub async fn handle_playlist_detail(playlist_id: &str) -> Result<Value, String> 
     }))
 }
 
+fn is_safe_stream_proxy_url(raw: &str) -> bool {
+    if is_safe_resource_url(raw) {
+        return true;
+    }
+    let Ok(u) = Url::parse(raw) else {
+        return false;
+    };
+    if (u.scheme() != "https" && u.scheme() != "http")
+        || !u.username().is_empty()
+        || u.password().is_some()
+    {
+        return false;
+    }
+    let Some(host) = u.host_str().map(|h| h.to_ascii_lowercase()) else {
+        return false;
+    };
+    host == "music.163.com"
+        || host.ends_with(".music.126.net")
+        || host.ends_with(".126.net")
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct NeteaseSession {
+    pub uid: String,
+    pub nickname: String,
+    pub avatar_url: String,
+    #[serde(default)]
+    pub cookie: String,
+}
+
+fn netease_session_file() -> PathBuf {
+    home_dir()
+        .join(".config")
+        .join("future-music")
+        .join("netease-session.json")
+}
+
+pub fn save_netease_session(session: &NeteaseSession) {
+    let path = netease_session_file();
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if let Ok(raw) = serde_json::to_string_pretty(session) {
+        let _ = fs::write(&path, raw);
+    }
+}
+
+pub fn clear_netease_session() {
+    let path = netease_session_file();
+    let _ = fs::remove_file(path);
+}
+
+pub fn load_netease_session() -> Option<NeteaseSession> {
+    let path = netease_session_file();
+    let raw = fs::read_to_string(&path).ok()?;
+    let sess: NeteaseSession = serde_json::from_str(&raw).ok()?;
+    if sess.uid.trim().is_empty() {
+        return None;
+    }
+    Some(sess)
+}
+
+fn sanitize_netease_cover(raw: &str) -> String {
+    let trimmed = raw.trim().replace("http://", "https://");
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if trimmed.contains("126.net") && !trimmed.contains("param=") {
+        if trimmed.contains('?') {
+            format!("{trimmed}&param=300y300")
+        } else {
+            format!("{trimmed}?param=300y300")
+        }
+    } else {
+        trimmed
+    }
+}
+
+pub fn normalize_netease_track(item: &Value) -> Option<Value> {
+    let id_str = item
+        .get("id")
+        .and_then(|v| {
+            v.as_i64()
+                .map(|n| n.to_string())
+                .or_else(|| v.as_str().map(|s| s.to_string()))
+        })?
+        .trim()
+        .to_string();
+    let title = item
+        .get("name")
+        .and_then(|v| v.as_str())?
+        .trim()
+        .to_string();
+    if id_str.is_empty() || title.is_empty() {
+        return None;
+    }
+
+    let mut artists: Vec<String> = Vec::new();
+    if let Some(arr) = item
+        .get("ar")
+        .or_else(|| item.get("artists"))
+        .and_then(|v| v.as_array())
+    {
+        for a in arr {
+            if let Some(n) = a.get("name").and_then(|v| v.as_str()) {
+                let trimmed = n.trim();
+                if !trimmed.is_empty() {
+                    artists.push(trimmed.to_string());
+                }
+            }
+        }
+    }
+    if artists.is_empty() {
+        artists.push("未知歌手".to_string());
+    }
+
+    let album_obj = item.get("al").or_else(|| item.get("album"));
+    let album = album_obj
+        .and_then(|a| a.get("name"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("网易云音乐")
+        .trim()
+        .to_string();
+    let raw_cover = album_obj
+        .and_then(|a| a.get("picUrl"))
+        .or_else(|| item.get("picUrl"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let cover_url = sanitize_netease_cover(raw_cover);
+
+    let dur_ms = item
+        .get("dt")
+        .or_else(|| item.get("duration"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(225_000);
+    let duration_seconds = (dur_ms / 1000).max(1);
+
+    let fee = item.get("fee").and_then(|v| v.as_i64()).unwrap_or(0);
+    let is_vip = fee == 1 || fee == 4;
+
+    Some(json!({
+        "id": format!("ncm_{id_str}"),
+        "sourceTrackId": id_str,
+        "title": title,
+        "artists": artists,
+        "album": album,
+        "durationSeconds": duration_seconds,
+        "coverUrl": cover_url,
+        "isVip": is_vip,
+        "source": "netease",
+    }))
+}
+
+async fn netease_get(url: &str, cookie: Option<&str>) -> Result<Value, String> {
+    let client = http_client();
+    let mut req = client
+        .get(url)
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        )
+        .header("Referer", "https://music.163.com/");
+    if let Some(c) = cookie.filter(|s| !s.trim().is_empty()) {
+        req = req.header("Cookie", c);
+    }
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("网易云请求失败: {e}"))?;
+    resp.json::<Value>()
+        .await
+        .map_err(|e| format!("网易云响应解析失败: {e}"))
+}
+
+async fn netease_post_form(
+    url: &str,
+    form: &[(&str, String)],
+    cookie: Option<&str>,
+) -> Result<Value, String> {
+    let client = http_client();
+    let mut req = client
+        .post(url)
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        )
+        .header("Referer", "https://music.163.com/")
+        .form(form);
+    if let Some(c) = cookie.filter(|s| !s.trim().is_empty()) {
+        req = req.header("Cookie", c);
+    }
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("网易云 POST 请求失败: {e}"))?;
+    resp.json::<Value>()
+        .await
+        .map_err(|e| format!("网易云响应解析失败: {e}"))
+}
+
+pub async fn handle_netease_search(query: &str) -> Result<Value, String> {
+    let q = query.trim();
+    if q.is_empty() {
+        return Ok(json!({ "ok": true, "tracks": [] }));
+    }
+    let enc: String = url::form_urlencoded::byte_serialize(q.as_bytes()).collect();
+    let url = format!(
+        "https://music.163.com/api/cloudsearch/pc?s={enc}&type=1&offset=0&limit=30"
+    );
+    let sess = load_netease_session();
+    let cookie = sess.as_ref().map(|s| s.cookie.as_str());
+    let data = netease_get(&url, cookie).await?;
+    let mut tracks = Vec::new();
+    if let Some(songs) = data
+        .get("result")
+        .and_then(|r| r.get("songs"))
+        .and_then(|v| v.as_array())
+    {
+        for s in songs {
+            if let Some(norm) = normalize_netease_track(s) {
+                tracks.push(norm);
+            }
+        }
+    }
+    Ok(json!({ "ok": true, "tracks": tracks }))
+}
+
+pub async fn handle_netease_recommendations() -> Result<Value, String> {
+    let sess = load_netease_session();
+    let cookie = sess.as_ref().map(|s| s.cookie.as_str());
+    let data = netease_get(
+        "https://music.163.com/api/personalized/playlist?limit=10",
+        cookie,
+    )
+    .await?;
+    let mut playlists = Vec::new();
+    if let Some(items) = data.get("result").and_then(|v| v.as_array()) {
+        for p in items {
+            let pid = p
+                .get("id")
+                .and_then(|v| {
+                    v.as_i64()
+                        .map(|n| n.to_string())
+                        .or_else(|| v.as_str().map(|s| s.to_string()))
+                })
+                .unwrap_or_default();
+            let title = p
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if pid.is_empty() || title.is_empty() {
+                continue;
+            }
+            let cover = sanitize_netease_cover(
+                p.get("picUrl")
+                    .or_else(|| p.get("coverImgUrl"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(""),
+            );
+            let track_count = p.get("trackCount").and_then(|v| v.as_u64()).unwrap_or(30);
+            let play_count_raw = p
+                .get("playCount")
+                .and_then(|v| v.as_f64().map(|f| f as u64).or_else(|| v.as_u64()))
+                .unwrap_or(500_000);
+            let desc = p
+                .get("copywriter")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or("网易云音乐官方推荐歌单")
+                .to_string();
+
+            playlists.push(json!({
+                "id": format!("pl_ncm_{pid}"),
+                "sourcePlaylistId": pid,
+                "source": "netease",
+                "title": title,
+                "description": desc,
+                "coverUrl": cover,
+                "trackCount": track_count,
+                "playCount": format_listen_count(play_count_raw),
+            }));
+        }
+    }
+    Ok(json!({ "ok": true, "playlists": playlists }))
+}
+
+pub async fn handle_netease_playlist_detail(playlist_id: &str) -> Result<Value, String> {
+    let raw_id = playlist_id
+        .trim()
+        .strip_prefix("pl_ncm_")
+        .or_else(|| playlist_id.trim().strip_prefix("pl_"))
+        .unwrap_or(playlist_id.trim());
+    if raw_id.is_empty() {
+        return Err("missing netease playlist id".into());
+    }
+    let sess = load_netease_session();
+    let cookie = sess.as_ref().map(|s| s.cookie.as_str());
+    let detail = netease_post_form(
+        "https://music.163.com/api/v6/playlist/detail",
+        &[
+            ("id", raw_id.to_string()),
+            ("n", "100".to_string()),
+            ("s", "0".to_string()),
+        ],
+        cookie,
+    )
+    .await?;
+
+    let pl = detail.get("playlist").cloned().unwrap_or_else(|| json!({}));
+    let mut tracks = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    if let Some(list) = pl.get("tracks").and_then(|v| v.as_array()) {
+        for item in list {
+            if let Some(norm) = normalize_netease_track(item) {
+                let cid = norm["sourceTrackId"].as_str().unwrap_or("").to_string();
+                if seen.insert(cid) {
+                    tracks.push(norm);
+                }
+            }
+        }
+    }
+
+    // If `trackIds` contains more tracks than returned in `tracks` (up to 80), fetch via `v3/song/detail`
+    if let Some(track_ids_arr) = pl.get("trackIds").and_then(|v| v.as_array()) {
+        let missing_ids: Vec<String> = track_ids_arr
+            .iter()
+            .take(80)
+            .filter_map(|t| {
+                t.get("id").and_then(|v| {
+                    v.as_i64()
+                        .map(|n| n.to_string())
+                        .or_else(|| v.as_str().map(|s| s.to_string()))
+                })
+            })
+            .filter(|id| !seen.contains(id))
+            .collect();
+
+        if !missing_ids.is_empty() {
+            let c_objs: Vec<Value> = missing_ids
+                .iter()
+                .map(|id| json!({ "id": id.parse::<i64>().unwrap_or(0) }))
+                .collect();
+            let c_str = serde_json::to_string(&c_objs).unwrap_or_else(|_| "[]".into());
+            if let Ok(s_detail) = netease_post_form(
+                "https://music.163.com/api/v3/song/detail",
+                &[("c", c_str)],
+                cookie,
+            )
+            .await
+            {
+                if let Some(songs) = s_detail.get("songs").and_then(|v| v.as_array()) {
+                    for s in songs {
+                        if let Some(norm) = normalize_netease_track(s) {
+                            let cid = norm["sourceTrackId"].as_str().unwrap_or("").to_string();
+                            if seen.insert(cid) {
+                                tracks.push(norm);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let name = pl
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("网易云歌单")
+        .trim()
+        .to_string();
+    let description = pl
+        .get("description")
+        .and_then(|v| v.as_str())
+        .unwrap_or("来自网易云音乐歌单")
+        .replace('\n', " ")
+        .trim()
+        .to_string();
+    let cover = sanitize_netease_cover(
+        pl.get("coverImgUrl")
+            .or_else(|| pl.get("picUrl"))
+            .and_then(|v| v.as_str())
+            .unwrap_or(""),
+    );
+
+    Ok(json!({
+        "ok": true,
+        "playlistId": format!("pl_ncm_{raw_id}"),
+        "sourcePlaylistId": raw_id,
+        "source": "netease",
+        "name": name,
+        "description": description,
+        "coverUrl": cover,
+        "tracks": tracks,
+    }))
+}
+
+fn extract_digits_id(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.chars().all(|c| c.is_ascii_digit()) {
+        return trimmed.to_string();
+    }
+    if let Some(pos) = trimmed.find("id=") {
+        let after = &trimmed[pos + 3..];
+        let digits: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if !digits.is_empty() {
+            return digits;
+        }
+    }
+    String::new()
+}
+
+async fn resolve_netease_uid_from_input(raw_input: &str) -> Result<String, String> {
+    let trimmed = raw_input.trim();
+    if trimmed.is_empty() {
+        return Err("请输入您的网易云音乐昵称、数字 UID 或个人主页链接".into());
+    }
+    let direct_digits = extract_digits_id(trimmed);
+    if !direct_digits.is_empty() {
+        return Ok(direct_digits);
+    }
+
+    // Search user by nickname via NetEase cloudsearch type=1002
+    let enc: String = url::form_urlencoded::byte_serialize(trimmed.as_bytes()).collect();
+    let url = format!(
+        "https://music.163.com/api/cloudsearch/pc?s={enc}&type=1002&offset=0&limit=5"
+    );
+    let data = netease_get(&url, None).await?;
+    if let Some(users) = data
+        .get("result")
+        .and_then(|r| r.get("userprofiles"))
+        .and_then(|v| v.as_array())
+    {
+        if let Some(first) = users.first() {
+            if let Some(uid) = first.get("userId").and_then(|v| {
+                v.as_i64()
+                    .map(|n| n.to_string())
+                    .or_else(|| v.as_str().map(|s| s.to_string()))
+            }) {
+                if !uid.is_empty() {
+                    return Ok(uid);
+                }
+            }
+        }
+    }
+    Err(format!("未找到昵称为「{trimmed}」的网易云用户，请检查昵称或直接输入数字 UID"))
+}
+
+pub async fn handle_netease_qr_create() -> Result<Value, String> {
+    let data = netease_get(
+        "https://music.163.com/api/login/qrcode/unikey?type=1",
+        None,
+    )
+    .await?;
+    let unikey = data
+        .get("unikey")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if unikey.is_empty() {
+        return Err("无法从网易云获取扫码 unikey".into());
+    }
+    let qr_url = format!("https://music.163.com/login?codekey={unikey}");
+    let code = qrcode::QrCode::new(qr_url.as_bytes())
+        .map_err(|e| format!("二维码生成失败: {e}"))?;
+    let svg = code
+        .render()
+        .min_dimensions(200, 200)
+        .dark_color(qrcode::render::svg::Color("#18181A"))
+        .light_color(qrcode::render::svg::Color("#FFFFFF"))
+        .build();
+
+    Ok(json!({
+        "ok": true,
+        "unikey": unikey,
+        "qrUrl": qr_url,
+        "qrSvg": svg,
+    }))
+}
+
+pub async fn handle_netease_qr_poll(body: &Value) -> Result<Value, String> {
+    let key = body
+        .get("unikey")
+        .or_else(|| body.get("key"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
+    if key.is_empty() {
+        return Err("missing unikey".into());
+    }
+    let fallback_nick = body
+        .get("nickname")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+
+    let url = format!(
+        "https://music.163.com/api/login/qrcode/client/login?type=1&key={key}"
+    );
+    let client = http_client();
+    let resp = client
+        .get(&url)
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+        )
+        .header("Referer", "https://music.163.com/")
+        .send()
+        .await
+        .map_err(|e| format!("扫码状态查询失败: {e}"))?;
+
+    let mut cookies = Vec::new();
+    for val in resp.headers().get_all("set-cookie") {
+        if let Ok(s) = val.to_str() {
+            if let Some(pair) = s.split(';').next() {
+                cookies.push(pair.trim().to_string());
+            }
+        }
+    }
+    let cookie_header = cookies.join("; ");
+    let data: Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("扫码状态解析失败: {e}"))?;
+
+    let code = data.get("code").and_then(|v| v.as_i64()).unwrap_or(0);
+    let message = data
+        .get("message")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let scanned_nick = data
+        .get("nickname")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let scanned_avatar = data
+        .get("avatarUrl")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+
+    if code == 803 {
+        let mut uid = String::new();
+        let mut nickname = if !scanned_nick.is_empty() {
+            scanned_nick.clone()
+        } else {
+            fallback_nick.clone()
+        };
+        let mut avatar_url = scanned_avatar.clone();
+
+        if !cookie_header.is_empty() {
+            if let Ok(acc) = netease_get(
+                "https://music.163.com/api/nuser/account/get",
+                Some(&cookie_header),
+            )
+            .await
+            {
+                if let Some(prof) = acc.get("profile") {
+                    if let Some(u) = prof.get("userId").and_then(|v| {
+                        v.as_i64()
+                            .map(|n| n.to_string())
+                            .or_else(|| v.as_str().map(|s| s.to_string()))
+                    }) {
+                        uid = u;
+                    }
+                    if let Some(n) = prof.get("nickname").and_then(|v| v.as_str()) {
+                        nickname = n.trim().to_string();
+                    }
+                    if let Some(av) = prof.get("avatarUrl").and_then(|v| v.as_str()) {
+                        avatar_url = sanitize_netease_cover(av);
+                    }
+                }
+            }
+        }
+
+        if uid.is_empty() && !nickname.is_empty() {
+            if let Ok(resolved) = resolve_netease_uid_from_input(&nickname).await {
+                uid = resolved;
+            }
+        }
+
+        if !uid.is_empty() {
+            save_netease_session(&NeteaseSession {
+                uid: uid.clone(),
+                nickname: nickname.clone(),
+                avatar_url: avatar_url.clone(),
+                cookie: cookie_header.clone(),
+            });
+        }
+
+        return Ok(json!({
+            "ok": true,
+            "code": 803,
+            "message": "扫码登录成功",
+            "uid": uid,
+            "nickname": nickname,
+            "avatarUrl": avatar_url,
+            "cookie": cookie_header,
+        }));
+    }
+
+    // Also resolve UID immediately when code == 802 ("授权中" - user has scanned on phone and nickname is returned!)
+    let mut pre_resolved_uid = String::new();
+    if code == 802 && !scanned_nick.is_empty() {
+        if let Ok(u) = resolve_netease_uid_from_input(&scanned_nick).await {
+            pre_resolved_uid = u;
+        }
+    }
+
+    Ok(json!({
+        "ok": true,
+        "code": code,
+        "message": message,
+        "nickname": scanned_nick,
+        "avatarUrl": sanitize_netease_cover(&scanned_avatar),
+        "uid": pre_resolved_uid,
+    }))
+}
+
+pub async fn handle_netease_sync(body: &Value) -> Result<Value, String> {
+    let existing = load_netease_session();
+    let input_str = body
+        .get("uid")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| existing.as_ref().map(|s| s.uid.clone()))
+        .unwrap_or_default();
+    let raw_uid = resolve_netease_uid_from_input(&input_str).await?;
+    let cookie = body
+        .get("cookie")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| existing.as_ref().map(|s| s.cookie.clone()))
+        .unwrap_or_default();
+
+    let url = format!(
+        "https://music.163.com/api/user/playlist?uid={raw_uid}&limit=30&offset=0"
+    );
+    let data = netease_get(&url, Some(&cookie)).await?;
+    let Some(pl_arr) = data.get("playlist").and_then(|v| v.as_array()) else {
+        return Err("未能获取到该 UID 的公开歌单，请检查 UID 是否正确".into());
+    };
+    if pl_arr.is_empty() {
+        return Err("该网易云 UID 下暂无公开歌单".into());
+    }
+
+    let mut nickname = format!("UID {raw_uid}");
+    let mut avatar_url = String::new();
+    if let Some(creator) = pl_arr.first().and_then(|p| p.get("creator")) {
+        if let Some(n) = creator.get("nickname").and_then(|v| v.as_str()) {
+            if !n.trim().is_empty() {
+                nickname = n.trim().to_string();
+            }
+        }
+        if let Some(av) = creator.get("avatarUrl").and_then(|v| v.as_str()) {
+            avatar_url = sanitize_netease_cover(av);
+        }
+    }
+
+    let sess = NeteaseSession {
+        uid: raw_uid.clone(),
+        nickname: nickname.clone(),
+        avatar_url: avatar_url.clone(),
+        cookie: cookie.clone(),
+    };
+    save_netease_session(&sess);
+
+    let mut fav_tracks = Vec::new();
+    let mut playlists = Vec::new();
+    let mut seen_fav = std::collections::HashSet::new();
+
+    for (idx, p) in pl_arr.iter().take(12).enumerate() {
+        let pid = p
+            .get("id")
+            .and_then(|v| {
+                v.as_i64()
+                    .map(|n| n.to_string())
+                    .or_else(|| v.as_str().map(|s| s.to_string()))
+            })
+            .unwrap_or_default();
+        if pid.is_empty() {
+            continue;
+        }
+        let pname = p
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("网易云歌单")
+            .trim()
+            .to_string();
+        let pcover = sanitize_netease_cover(
+            p.get("coverImgUrl")
+                .or_else(|| p.get("picUrl"))
+                .and_then(|v| v.as_str())
+                .unwrap_or(""),
+        );
+        let pcount = p.get("trackCount").and_then(|v| v.as_u64()).unwrap_or(0);
+        let pdesc = p
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("来自网易云音乐同步歌单")
+            .replace('\n', " ")
+            .trim()
+            .to_string();
+
+        // Fetch tracks for the first playlist ("我喜欢的音乐") and up to 4 user playlists immediately
+        let mut pl_tracks = Vec::new();
+        let mut pl_track_ids = Vec::new();
+        if idx < 5 {
+            if let Ok(det) = handle_netease_playlist_detail(&pid).await {
+                if let Some(arr) = det.get("tracks").and_then(|v| v.as_array()) {
+                    for t in arr {
+                        if let Some(tid) = t.get("id").and_then(|v| v.as_str()) {
+                            pl_track_ids.push(tid.to_string());
+                        }
+                        if idx == 0 {
+                            let cid = t
+                                .get("sourceTrackId")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            if seen_fav.insert(cid) {
+                                fav_tracks.push(t.clone());
+                            }
+                        }
+                        pl_tracks.push(t.clone());
+                    }
+                }
+            }
+        }
+
+        playlists.push(json!({
+            "id": format!("pl_ncm_{pid}"),
+            "sourcePlaylistId": pid,
+            "source": "netease",
+            "name": pname,
+            "description": if pdesc.is_empty() { "来自网易云音乐账号歌单".to_string() } else { pdesc },
+            "coverUrl": pcover,
+            "trackCount": pcount.max(pl_track_ids.len() as u64),
+            "trackIds": pl_track_ids,
+            "tracks": pl_tracks,
+        }));
+    }
+
+    if let Ok(db) = crate::db::LibraryDb::open_default() {
+        let now_ms = (crate::huawei::now_epoch_secs() * 1000) as i64;
+        let _ = db.persist_netease_sync(&raw_uid, &nickname, &fav_tracks, &playlists, now_ms);
+    }
+
+    Ok(json!({
+        "ok": true,
+        "uid": raw_uid,
+        "nickname": nickname,
+        "avatarUrl": avatar_url,
+        "tracks": fav_tracks,
+        "playlists": playlists,
+    }))
+}
+
+async fn fetch_netease_lyrics(song_id: &str) -> Vec<LyricLine> {
+    let url = format!(
+        "https://music.163.com/api/song/lyric?id={song_id}&lv=1&kv=1&tv=-1&rv=-1&yv=1"
+    );
+    let Ok(data) = netease_get(&url, None).await else {
+        return Vec::new();
+    };
+    let yrc_raw = data
+        .get("yrc")
+        .and_then(|v| v.get("lyric"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let lrc_raw = data
+        .get("lrc")
+        .and_then(|v| v.get("lyric"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let tlyric_raw = data
+        .get("tlyric")
+        .and_then(|v| v.get("lyric"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let romalrc_raw = data
+        .get("romalrc")
+        .and_then(|v| v.get("lyric"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    let mut lines = if !yrc_raw.trim().is_empty() {
+        let parsed_yrc = parse_netease_yrc(yrc_raw);
+        if parsed_yrc.is_empty() {
+            parse_lrc(lrc_raw)
+        } else {
+            parsed_yrc
+        }
+    } else {
+        parse_lrc(lrc_raw)
+    };
+
+    if !tlyric_raw.trim().is_empty() {
+        let trans_lines = parse_lrc(tlyric_raw);
+        lines = merge_lyric_subtitles(lines, &trans_lines);
+    }
+    if !romalrc_raw.trim().is_empty() {
+        let roma_lines = parse_lrc(romalrc_raw);
+        lines = merge_lyric_romanizations(lines, &roma_lines);
+    }
+    lines
+}
+
+pub async fn handle_netease_resolve(body: &Value) -> Result<Value, String> {
+    let mut song_id = body
+        .get("contentCode")
+        .or_else(|| body.get("sourceTrackId"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .strip_prefix("ncm_")
+        .unwrap_or_else(|| {
+            body.get("contentCode")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+        })
+        .to_string();
+    let title = body
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
+    let artist = body
+        .get("artist")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
+
+    if song_id.is_empty() || !song_id.chars().all(|c| c.is_ascii_digit()) {
+        let q = format!("{title} {artist}").trim().to_string();
+        if !q.is_empty() {
+            if let Ok(sres) = handle_netease_search(&q).await {
+                if let Some(first) = sres
+                    .get("tracks")
+                    .and_then(|v| v.as_array())
+                    .and_then(|a| a.first())
+                {
+                    song_id = first
+                        .get("sourceTrackId")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                }
+            }
+        }
+    }
+
+    let ncm_lyrics = if !song_id.is_empty() {
+        fetch_netease_lyrics(&song_id).await
+    } else {
+        Vec::new()
+    };
+
+    // 1. Try direct NetEase stream via enhance/player/url
+    let sess = load_netease_session();
+    let cookie = sess.as_ref().map(|s| s.cookie.as_str());
+    let mut direct_url = String::new();
+    let mut is_free_trial = false;
+
+    if !song_id.is_empty() {
+        let enhance_url = format!(
+            "https://music.163.com/api/song/enhance/player/url?ids=%5B{song_id}%5D&br=320000"
+        );
+        if let Ok(pdata) = netease_get(&enhance_url, cookie).await {
+            if let Some(first) = pdata
+                .get("data")
+                .and_then(|v| v.as_array())
+                .and_then(|a| a.first())
+            {
+                if let Some(u) = first.get("url").and_then(|v| v.as_str()) {
+                    let trimmed = u.trim();
+                    if is_safe_stream_proxy_url(trimmed) {
+                        direct_url = trimmed.to_string();
+                        is_free_trial = first.get("freeTrialInfo").is_some()
+                            && !first.get("freeTrialInfo").unwrap().is_null();
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. If direct_url is present and not a 30s VIP trial, stream via local proxy
+    if !direct_url.is_empty() && !is_free_trial {
+        let encoded_url: String =
+            url::form_urlencoded::byte_serialize(direct_url.as_bytes()).collect();
+        let stream_url = format!(
+            "http://127.0.0.1:{}/api/huawei/stream?url={}",
+            active_bridge_port(),
+            encoded_url
+        );
+        let is_flac = direct_url.to_ascii_lowercase().contains(".flac");
+        return Ok(json!({
+            "ok": true,
+            "contentCode": song_id,
+            "streamUrl": stream_url,
+            "rawStreamUrl": direct_url,
+            "quality": if is_flac { "lossless" } else { "standard" },
+            "formatLabel": if is_flac { "网易云无损 FLAC" } else { "网易云 320k MP3" },
+            "isPreview": false,
+            "resolvedBy": "netease",
+            "lyrics": to_frontend_lyrics(ncm_lyrics),
+        }));
+    }
+
+    // 3. Automatic cross-source unblocking via Huawei Music lossless engine when NetEase track is VIP-locked!
+    if !title.is_empty() {
+        let hw_sess = load_persisted_session();
+        let fallback_req = json!({
+            "contentCode": "",
+            "title": title,
+            "artist": artist,
+            "quality": body.get("quality").and_then(|v| v.as_str()).unwrap_or("lossless"),
+        });
+        if let Ok(mut hw_resolved) = handle_resolve(hw_sess.as_ref(), &fallback_req).await {
+            if let Some(obj) = hw_resolved.as_object_mut() {
+                obj.insert("resolvedBy".into(), json!("huawei_unblock"));
+                obj.insert(
+                    "formatLabel".into(),
+                    json!("华为无损点亮 · FLAC"),
+                );
+                // Prefer NetEase's rich dual-language / yrc lyrics if Huawei didn't return word-by-word lyrics
+                if !ncm_lyrics.is_empty() {
+                    obj.insert("lyrics".into(), json!(to_frontend_lyrics(ncm_lyrics)));
+                }
+            }
+            return Ok(hw_resolved);
+        }
+    }
+
+    // 4. If Huawei fallback is not logged in or didn't match, still return lyrics if available or error
+    if !direct_url.is_empty() {
+        let encoded_url: String =
+            url::form_urlencoded::byte_serialize(direct_url.as_bytes()).collect();
+        let stream_url = format!(
+            "http://127.0.0.1:{}/api/huawei/stream?url={}",
+            active_bridge_port(),
+            encoded_url
+        );
+        return Ok(json!({
+            "ok": true,
+            "contentCode": song_id,
+            "streamUrl": stream_url,
+            "rawStreamUrl": direct_url,
+            "quality": "standard",
+            "formatLabel": "网易云试听片段",
+            "isPreview": true,
+            "resolvedBy": "netease",
+            "lyrics": to_frontend_lyrics(ncm_lyrics),
+        }));
+    }
+
+    Err("该网易云曲目为 VIP 专享，登录华为音乐或填写网易云黑胶 Cookie 后可自动点亮无损全曲".into())
+}
+
 fn send_json(mut stream: TcpStream, status: u16, payload: &Value) {
     let body = serde_json::to_vec(payload).unwrap_or_default();
     let status_text = match status {
@@ -960,7 +1932,7 @@ fn send_json(mut stream: TcpStream, status: u16, payload: &Value) {
 }
 
 fn proxy_huawei_stream(mut stream: TcpStream, raw_url: &str, range_header: Option<String>) {
-    if !is_safe_resource_url(raw_url) {
+    if !is_safe_stream_proxy_url(raw_url) {
         send_json(stream, 400, &json!({ "error": "invalid stream url" }));
         return;
     }
@@ -1255,6 +2227,82 @@ fn handle_client(mut stream: TcpStream) {
                 ));
             }
             send_json(stream, 200, &json!({ "ok": true }));
+        }
+        ("GET", "/api/netease/status") => {
+            if let Some(sess) = load_netease_session() {
+                send_json(
+                    stream,
+                    200,
+                    &json!({
+                        "loggedIn": true,
+                        "uid": sess.uid,
+                        "nickname": sess.nickname,
+                        "avatarUrl": sess.avatar_url,
+                        "hasCookie": !sess.cookie.trim().is_empty(),
+                    }),
+                );
+            } else {
+                send_json(stream, 200, &json!({ "loggedIn": false }));
+            }
+        }
+        ("POST", "/api/netease/sync") => {
+            let body_json: Value = serde_json::from_str(&body_part).unwrap_or_else(|_| json!({}));
+            match tauri::async_runtime::block_on(handle_netease_sync(&body_json)) {
+                Ok(val) => send_json(stream, 200, &val),
+                Err(e) => send_json(stream, 400, &json!({ "ok": false, "error": e })),
+            }
+        }
+        ("POST", "/api/netease/qr/create") => {
+            match tauri::async_runtime::block_on(handle_netease_qr_create()) {
+                Ok(val) => send_json(stream, 200, &val),
+                Err(e) => send_json(stream, 500, &json!({ "ok": false, "error": e })),
+            }
+        }
+        ("POST", "/api/netease/qr/poll") => {
+            let body_json: Value = serde_json::from_str(&body_part).unwrap_or_else(|_| json!({}));
+            match tauri::async_runtime::block_on(handle_netease_qr_poll(&body_json)) {
+                Ok(val) => send_json(stream, 200, &val),
+                Err(e) => send_json(stream, 500, &json!({ "ok": false, "error": e })),
+            }
+        }
+        ("POST", "/api/netease/logout") => {
+            clear_netease_session();
+            send_json(stream, 200, &json!({ "ok": true }));
+        }
+        ("POST", "/api/netease/search") => {
+            let body_json: Value = serde_json::from_str(&body_part).unwrap_or_else(|_| json!({}));
+            let q = body_json
+                .get("query")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            match tauri::async_runtime::block_on(handle_netease_search(q)) {
+                Ok(val) => send_json(stream, 200, &val),
+                Err(e) => send_json(stream, 500, &json!({ "ok": false, "error": e })),
+            }
+        }
+        ("POST", "/api/netease/recommendations") => {
+            match tauri::async_runtime::block_on(handle_netease_recommendations()) {
+                Ok(val) => send_json(stream, 200, &val),
+                Err(e) => send_json(stream, 500, &json!({ "ok": false, "error": e })),
+            }
+        }
+        ("POST", "/api/netease/playlist/detail") => {
+            let body_json: Value = serde_json::from_str(&body_part).unwrap_or_else(|_| json!({}));
+            let pid = body_json
+                .get("playlistId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            match tauri::async_runtime::block_on(handle_netease_playlist_detail(pid)) {
+                Ok(val) => send_json(stream, 200, &val),
+                Err(e) => send_json(stream, 500, &json!({ "ok": false, "error": e })),
+            }
+        }
+        ("POST", "/api/netease/resolve") => {
+            let body_json: Value = serde_json::from_str(&body_part).unwrap_or_else(|_| json!({}));
+            match tauri::async_runtime::block_on(handle_netease_resolve(&body_json)) {
+                Ok(val) => send_json(stream, 200, &val),
+                Err(e) => send_json(stream, 404, &json!({ "ok": false, "error": e })),
+            }
         }
         ("GET", "/api/library/snapshot") => {
             match crate::db::LibraryDb::open_default().and_then(|db| db.load_runtime_snapshot()) {

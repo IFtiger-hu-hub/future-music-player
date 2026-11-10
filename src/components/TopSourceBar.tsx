@@ -15,9 +15,8 @@ import { THEME_PALETTES, CUSTOM_ACCENT_SWATCHES } from '../theme/palettes';
 const SOURCE_FILTERS: Array<{ id: SourceId | 'all'; label: string }> = [
   { id: 'all', label: '全部' },
   { id: 'huawei', label: '华为无损' },
+  { id: 'netease', label: '网易云' },
   { id: 'local', label: '本地' },
-  { id: 'netease', label: '网易' },
-  { id: 'qq', label: 'QQ' },
 ];
 
 const NAV_TITLES: Record<NavSection, string> = {
@@ -40,6 +39,7 @@ export const TopSourceBar: React.FC = () => {
   const searchHuaweiCatalog = usePlayerStore((s) => s.searchHuaweiCatalog);
   const sources = usePlayerStore((s) => s.sources);
   const setHuaweiAuthModalOpen = usePlayerStore((s) => s.setHuaweiAuthModalOpen);
+  const setNeteaseModalOpen = usePlayerStore((s) => s.setNeteaseModalOpen);
   const setImportModalOpen = usePlayerStore((s) => s.setImportModalOpen);
 
   const themeId = usePlayerStore((s) => s.themeId);
@@ -54,6 +54,10 @@ export const TopSourceBar: React.FC = () => {
   const popoverRef = useRef<HTMLDivElement | null>(null);
 
   const huaweiSource = sources.find((s) => s.id === 'huawei');
+  const neteaseSource = sources.find((s) => s.id === 'netease');
+  const isNeteaseSynced = Boolean(
+    neteaseSource?.accountName.startsWith('网易云 ·')
+  );
 
   useEffect(() => {
     const activePalette =
@@ -143,28 +147,51 @@ export const TopSourceBar: React.FC = () => {
 
         {/* Right: Account Pill + HarmonyOS Acoustic Wave Icon + Rounded-Full Search Bar */}
         <div className="flex items-center justify-end gap-2 sm:gap-2.5 min-w-0 flex-1 sm:flex-initial">
-          {/* Huawei Account Quick Status (Full Pill on md+, Compact Icon on <md) */}
-          <button
-            onClick={() => setHuaweiAuthModalOpen(true)}
-            title={
-              huaweiSource?.loggedIn
-                ? huaweiSource.accountName
-                : '连接华为音乐账号'
-            }
-            className="flex items-center justify-center gap-2 h-9 w-9 md:w-auto md:px-3.5 rounded-full btn-harmony-secondary text-[12px] font-semibold cursor-pointer shrink-0 relative"
-          >
-            <span
-              className={`w-2 h-2 rounded-full shrink-0 md:static absolute top-1.5 right-1.5 ${
-                huaweiSource?.loggedIn ? 'bg-emerald-500' : 'bg-[#FA2D48]'
-              }`}
-            />
-            <QrCode className="w-3.5 h-3.5 text-white/60 shrink-0" />
-            <span className="hidden md:inline max-w-[120px] xl:max-w-[140px] truncate">
-              {huaweiSource?.loggedIn
-                ? huaweiSource.accountName.replace('华为账号 · ', '')
-                : '连接华为音乐'}
-            </span>
-          </button>
+          {activeSourceFilter === 'netease' ? (
+            <button
+              onClick={() => setNeteaseModalOpen(true)}
+              title={
+                isNeteaseSynced
+                  ? neteaseSource?.accountName
+                  : '扫码或输入昵称连接网易云音乐'
+              }
+              className="flex items-center justify-center gap-2 h-9 w-9 md:w-auto md:px-3.5 rounded-full btn-harmony-secondary text-[12px] font-semibold cursor-pointer shrink-0 relative"
+            >
+              <span
+                className={`w-2 h-2 rounded-full shrink-0 md:static absolute top-1.5 right-1.5 ${
+                  isNeteaseSynced ? 'bg-emerald-500' : 'bg-[#E60026]'
+                }`}
+              />
+              <QrCode className="w-3.5 h-3.5 text-white/60 shrink-0" />
+              <span className="hidden md:inline max-w-[130px] xl:max-w-[150px] truncate">
+                {isNeteaseSynced
+                  ? neteaseSource?.accountName.replace('网易云 · ', '网易云: ')
+                  : '扫码 / 昵称连网易云'}
+              </span>
+            </button>
+          ) : (
+            <button
+              onClick={() => setHuaweiAuthModalOpen(true)}
+              title={
+                huaweiSource?.loggedIn
+                  ? huaweiSource.accountName
+                  : '连接华为音乐账号'
+              }
+              className="flex items-center justify-center gap-2 h-9 w-9 md:w-auto md:px-3.5 rounded-full btn-harmony-secondary text-[12px] font-semibold cursor-pointer shrink-0 relative"
+            >
+              <span
+                className={`w-2 h-2 rounded-full shrink-0 md:static absolute top-1.5 right-1.5 ${
+                  huaweiSource?.loggedIn ? 'bg-emerald-500' : 'bg-[#FA2D48]'
+                }`}
+              />
+              <QrCode className="w-3.5 h-3.5 text-white/60 shrink-0" />
+              <span className="hidden md:inline max-w-[120px] xl:max-w-[140px] truncate">
+                {huaweiSource?.loggedIn
+                  ? huaweiSource.accountName.replace('华为账号 · ', '')
+                  : '连接华为音乐'}
+              </span>
+            </button>
+          )}
 
           {/* Import Playlists Button */}
           <button

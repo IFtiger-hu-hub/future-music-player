@@ -6,9 +6,11 @@ import {
   Sliders,
   Disc3,
   SlidersHorizontal,
+  History,
 } from 'lucide-react';
 import { usePlayerStore } from '../store/usePlayerStore';
 import { THEME_PALETTES, CUSTOM_ACCENT_SWATCHES } from '../theme/palettes';
+import { formatDuration } from '../components/TrackTable';
 
 export const SettingsView: React.FC = () => {
   const setActiveNav = usePlayerStore((s) => s.setActiveNav);
@@ -25,6 +27,14 @@ export const SettingsView: React.FC = () => {
   const applyEqPreset = usePlayerStore((s) => s.applyEqPreset);
   const mergeAudits = usePlayerStore((s) => s.mergeAudits);
   const revokeMergeDecision = usePlayerStore((s) => s.revokeMergeDecision);
+  const rememberPlaybackProgress = usePlayerStore(
+    (s) => s.rememberPlaybackProgress
+  );
+  const setRememberPlaybackProgress = usePlayerStore(
+    (s) => s.setRememberPlaybackProgress
+  );
+  const currentTrack = usePlayerStore((s) => s.currentTrack);
+  const currentTimeMs = usePlayerStore((s) => s.currentTimeMs);
 
   return (
     <div className="space-y-6">
@@ -56,6 +66,48 @@ export const SettingsView: React.FC = () => {
         >
           <RotateCcw className="w-3.5 h-3.5" />
           <span>恢复鸿蒙默认浅色</span>
+        </button>
+      </div>
+
+      {/* Playback Resume & Behavior Preferences Card */}
+      <div className="p-6 rounded-[24px] surface-bento flex items-center justify-between gap-6 flex-wrap">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2.5">
+            <History
+              className="w-4 h-4"
+              style={{ color: 'var(--theme-accent)' }}
+            />
+            <h3 className="text-[16px] font-bold text-white">
+              退出时记录上次播放位置 (断点续播)
+            </h3>
+            <span className="badge-lossless">
+              {rememberPlaybackProgress ? '已开启' : '已关闭'}
+            </span>
+          </div>
+          <p className="text-[12.5px] text-white/55">
+            开启后自动记录当前播放曲目、音源与时间轴进度，下次启动应用时自动恢复（当前记录：《
+            {currentTrack.title}》{' '}
+            {formatDuration(Math.floor(currentTimeMs / 1000))} /{' '}
+            {formatDuration(currentTrack.durationSeconds)}）
+          </p>
+        </div>
+
+        <button
+          role="switch"
+          aria-checked={rememberPlaybackProgress}
+          onClick={() => setRememberPlaybackProgress(!rememberPlaybackProgress)}
+          style={{
+            backgroundColor: rememberPlaybackProgress
+              ? 'var(--theme-accent)'
+              : 'rgba(128,128,128,0.25)',
+          }}
+          className="relative w-12 h-7 rounded-full transition-colors cursor-pointer shrink-0 p-1 flex items-center"
+        >
+          <span
+            className={`w-5 h-5 rounded-full bg-white shadow-md transition-transform ${
+              rememberPlaybackProgress ? 'translate-x-5' : 'translate-x-0'
+            }`}
+          />
         </button>
       </div>
 

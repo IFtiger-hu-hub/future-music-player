@@ -15,28 +15,49 @@ import { TrackTable } from '../components/TrackTable';
 export const PlaylistsView: React.FC = () => {
   const activeNav = usePlayerStore((s) => s.activeNav);
   const setActiveNav = usePlayerStore((s) => s.setActiveNav);
+  const activeSourceFilter = usePlayerStore((s) => s.activeSourceFilter);
   const playlists = usePlayerStore((s) => s.playlists);
   const selectedPlaylistId = usePlayerStore((s) => s.selectedPlaylistId);
   const setSelectedPlaylistId = usePlayerStore((s) => s.setSelectedPlaylistId);
+  const openCuratedPlaylist = usePlayerStore((s) => s.openCuratedPlaylist);
   const tracks = usePlayerStore((s) => s.tracks);
   const sources = usePlayerStore((s) => s.sources);
   const createLocalPlaylist = usePlayerStore((s) => s.createLocalPlaylist);
   const triggerHuaweiSync = usePlayerStore((s) => s.triggerHuaweiSync);
   const setHuaweiAuthModalOpen = usePlayerStore((s) => s.setHuaweiAuthModalOpen);
+  const setNeteaseModalOpen = usePlayerStore((s) => s.setNeteaseModalOpen);
+  const isSyncingNetease = usePlayerStore((s) => s.isSyncingNetease);
   const playTrack = usePlayerStore((s) => s.playTrack);
   const isLoadingPlaylistDetail = usePlayerStore(
     (s) => s.isLoadingPlaylistDetail
   );
 
-  const isLocal = activeNav === 'local_playlists';
+  const isLocal =
+    activeSourceFilter === 'local' ||
+    (activeSourceFilter === 'all' && activeNav === 'local_playlists');
   const huaweiSource = sources.find((s) => s.id === 'huawei')!;
-  const visiblePlaylists = playlists.filter((p) =>
-    isLocal ? p.kind === 'local' : p.kind === 'imported'
-  );
+  const neteaseSource = sources.find((s) => s.id === 'netease')!;
+
+  const localPlaylists = playlists.filter((p) => p.kind === 'local');
+  const importedPlaylists = playlists.filter((p) => {
+    if (p.kind !== 'imported') return false;
+    if (activeSourceFilter === 'netease') return p.source === 'netease';
+    if (activeSourceFilter === 'huawei') return p.source === 'huawei';
+    return true;
+  });
+
+  const visiblePlaylists =
+    activeSourceFilter === 'netease' || activeSourceFilter === 'huawei'
+      ? importedPlaylists
+      : isLocal
+        ? localPlaylists
+        : importedPlaylists;
+
   const activePl =
-    playlists.find((p) => p.id === selectedPlaylistId) ||
+    visiblePlaylists.find((p) => p.id === selectedPlaylistId) ||
     visiblePlaylists[0] ||
-    playlists[0];
+    (activeSourceFilter === 'all' ? playlists[0] : undefined);
+
   const trackMap = new Map(tracks.map((t) => [t.id, t]));
   const activeTracks = activePl
     ? activePl.trackIds
@@ -59,28 +80,59 @@ export const PlaylistsView: React.FC = () => {
           </button>
 
           <button
-            onClick={() => setActiveNav('local_playlists')}
+            onClick={() => {
+              if (
+                activeSourceFilter === 'netease' ||
+                activeSourceFilter === 'huawei'
+              ) {
+                usePlayerStore.getState().setActiveSourceFilter('local');
+              }
+              setActiveNav('local_playlists');
+            }}
             className={`h-9 px-5 rounded-full text-[13px] font-semibold cursor-pointer ${
               isLocal ? 'btn-harmony-active' : 'btn-harmony-secondary'
             }`}
           >
-            精选与自建歌单 ({playlists.filter((p) => p.kind === 'local').length})
+            精选与自建歌单 ({localPlaylists.length})
           </button>
           <button
-            onClick={() => setActiveNav('imported_playlists')}
+            onClick={() => {
+              if (activeSourceFilter === 'local') {
+                usePlayerStore.getState().setActiveSourceFilter('all');
+              }
+              setActiveNav('imported_playlists');
+            }}
             className={`h-9 px-5 rounded-full text-[13px] font-semibold cursor-pointer ${
               !isLocal ? 'btn-harmony-active' : 'btn-harmony-secondary'
             }`}
           >
-            云端同步歌单 ({playlists.filter((p) => p.kind === 'imported').length})
+            {activeSourceFilter === 'netease'
+              ? `网易云歌单 (${importedPlaylists.length})`
+              : activeSourceFilter === 'huawei'
+                ? `华为云端歌单 (${importedPlaylists.length})`
+                : `云端同步歌单 (${importedPlaylists.length})`}
           </button>
         </div>
 
-        {isLocal ? (
+        {activeSourceFilter === 'netease' ? (
+          <button
+            onClick={() => setNeteaseModalOpen(true)}
+            className="h-9 px-4 rounded-full btn-harmony-primary text-[12.5px] font-semibold flex items-center gap-1.5 cursor-pointer"
+          >
+            <RefreshCw
+              className={`w-3.5 h-3.5 ${isSyncingNetease ? 'animate-spin' : ''}`}
+            />
+            <span>
+              {neteaseSource.accountName.startsWith('网易云 ·')
+                ? `切换/刷新 (${neteaseSource.accountName.replace('网易云 · ', '')})`
+                : '扫码 / 昵称同步网易云歌单'}
+            </span>
+          </button>
+        ) : isLocal ? (
           <button
             onClick={() =>
               createLocalPlaylist(
-                `精选歌单 #${playlists.filter((p) => p.kind === 'local').length + 1}`,
+                `精选歌单 #${localPlaylists.length + 1}`,
                 '跨音源无损精选集'
               )
             }
@@ -90,19 +142,27 @@ export const PlaylistsView: React.FC = () => {
             <span>新建歌单</span>
           </button>
         ) : (
-          <button
-            onClick={() =>
-              huaweiSource.loggedIn
-                ? triggerHuaweiSync()
-                : setHuaweiAuthModalOpen(true)
-            }
-            className="h-9 px-4 rounded-full btn-harmony-secondary text-[12.5px] font-semibold flex items-center gap-1.5 cursor-pointer"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            <span>
-              {huaweiSource.loggedIn ? '刷新华为云端歌单' : '连接华为账号同步'}
-            </span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setNeteaseModalOpen(true)}
+              className="h-9 px-4 rounded-full btn-harmony-secondary text-[12.5px] font-semibold flex items-center gap-1.5 cursor-pointer"
+            >
+              <span>同步网易云歌单</span>
+            </button>
+            <button
+              onClick={() =>
+                huaweiSource.loggedIn
+                  ? triggerHuaweiSync()
+                  : setHuaweiAuthModalOpen(true)
+              }
+              className="h-9 px-4 rounded-full btn-harmony-secondary text-[12.5px] font-semibold flex items-center gap-1.5 cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>
+                {huaweiSource.loggedIn ? '刷新华为云端歌单' : '连接华为账号同步'}
+              </span>
+            </button>
+          </div>
         )}
       </div>
 
@@ -113,7 +173,24 @@ export const PlaylistsView: React.FC = () => {
           return (
             <div
               key={pl.id}
-              onClick={() => setSelectedPlaylistId(pl.id)}
+              onClick={() => {
+                setSelectedPlaylistId(pl.id);
+                if (
+                  pl.source === 'netease' &&
+                  pl.trackIds.length === 0 &&
+                  pl.id.startsWith('pl_ncm_')
+                ) {
+                  void openCuratedPlaylist({
+                    id: pl.id,
+                    sourcePlaylistId: pl.id.replace('pl_ncm_', ''),
+                    name: pl.name,
+                    description: pl.description,
+                    coverUrl: pl.coverUrl,
+                    trackIds: [],
+                    kind: 'imported',
+                  });
+                }
+              }}
               className={`group p-2.5 rounded-[18px] flex items-center gap-3 transition-all duration-200 cursor-pointer ${
                 isSelected
                   ? 'surface-bento ring-2 ring-[#FA2D48] shadow-md -translate-y-0.5'
@@ -151,7 +228,9 @@ export const PlaylistsView: React.FC = () => {
               />
               <div className="absolute top-3 left-3 px-2.5 py-0.5 rounded-full bg-black/55 backdrop-blur-md !text-white text-[10px] font-semibold flex items-center gap-1">
                 <Disc3 className="w-3 h-3" />
-                <span>Hi-Res 精选</span>
+                <span>
+                  {activePl.source === 'netease' ? '网易云音乐' : 'Hi-Res 精选'}
+                </span>
               </div>
             </div>
 
@@ -201,10 +280,15 @@ export const PlaylistsView: React.FC = () => {
 
           {/* Right Detail Track Table */}
           <div className="p-5 rounded-[24px] surface-bento min-w-0 space-y-3">
-            {isLoadingPlaylistDetail && (
+            {(isLoadingPlaylistDetail || isSyncingNetease) && (
               <div className="px-4 py-3 rounded-[16px] bg-[#FA2D48]/10 border border-[#FA2D48]/20 text-[12.5px] font-semibold text-[#FA2D48] flex items-center gap-2">
                 <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-                <span>正在从华为音乐云端拉取歌单真实曲目列表...</span>
+                <span>
+                  {activePl.source === 'netease' ||
+                  activeSourceFilter === 'netease'
+                    ? '正在从网易云音乐拉取歌单真实曲目列表...'
+                    : '正在从华为音乐云端拉取歌单真实曲目列表...'}
+                </span>
               </div>
             )}
             <TrackTable tracks={activeTracks} />

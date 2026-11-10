@@ -26,8 +26,6 @@ const SOURCE_LABELS: Record<SourceId, { name: string; short: string }> = {
   huawei: { name: '华为音乐', short: '华为' },
   local: { name: '本地音频', short: '本地' },
   netease: { name: '网易云', short: '网易' },
-  qq: { name: 'QQ音乐', short: 'QQ' },
-  navidrome: { name: '私有云', short: '云端' },
 };
 
 const HARMONY_BOTTOM_TABS: Array<{
@@ -165,11 +163,16 @@ export const FloatingPlayerBar: React.FC = () => {
     let lastDispatchedMs = -1;
     const tick = () => {
       const el = audioRef.current;
-      if (el && !el.paused && Number.isFinite(el.currentTime)) {
-        const nowMs = Math.floor(el.currentTime * 1000);
-        if (Math.abs(nowMs - lastDispatchedMs) >= 32) {
-          lastDispatchedMs = nowMs;
-          setCurrentTimeMs(nowMs);
+      if (el && !el.paused && el.readyState >= 1 && Number.isFinite(el.currentTime)) {
+        const storeMs = usePlayerStore.getState().currentTimeMs;
+        if (el.currentTime < 0.3 && storeMs > 1500) {
+          el.currentTime = storeMs / 1000;
+        } else {
+          const nowMs = Math.floor(el.currentTime * 1000);
+          if (Math.abs(nowMs - lastDispatchedMs) >= 32) {
+            lastDispatchedMs = nowMs;
+            setCurrentTimeMs(nowMs);
+          }
         }
       }
       rafId = window.requestAnimationFrame(tick);
@@ -207,6 +210,17 @@ export const FloatingPlayerBar: React.FC = () => {
           if (Number.isFinite(dur) && dur > 0) {
             setTrackDurationSeconds(currentTrack.id, dur);
           }
+          const storeMs = usePlayerStore.getState().currentTimeMs;
+          if (
+            storeMs > 500 &&
+            Math.abs(e.currentTarget.currentTime * 1000 - storeMs) > 1000
+          ) {
+            const targetSec = storeMs / 1000;
+            e.currentTarget.currentTime =
+              Number.isFinite(dur) && dur > 1
+                ? Math.min(dur - 0.5, targetSec)
+                : targetSec;
+          }
           if (isPlaying) {
             e.currentTarget.play().catch(() => {});
           }
@@ -218,13 +232,19 @@ export const FloatingPlayerBar: React.FC = () => {
           }
         }}
         onTimeUpdate={(e) => {
-          if (isStageOpen) return;
+          if (isStageOpen || e.currentTarget.readyState < 1) return;
+          const storeMs = usePlayerStore.getState().currentTimeMs;
+          if (e.currentTarget.currentTime < 0.3 && storeMs > 1500) {
+            e.currentTarget.currentTime = storeMs / 1000;
+            return;
+          }
           setCurrentTimeMs(Math.floor(e.currentTarget.currentTime * 1000));
         }}
         onEnded={nextTrack}
       />
 
-      {/* Bottom-Left Floating HarmonyOS Navigation Capsule (推荐 / 音乐厅 / Cafe馆 / 我的) */}
+      {/* Bottom-Left Floating HarmonyOS Navigation Capsule (Hidden when fullscreen stage is open to save GPU backdrop-blur FBOs) */}
+      {!isStageOpen && (
       <nav className="pointer-events-auto h-[54px] md:h-[62px] px-2 sm:px-3 rounded-full theme-harmony-dock backdrop-blur-2xl border flex items-center justify-around md:justify-start gap-0.5 sm:gap-1.5 shrink-0">
         {HARMONY_BOTTOM_TABS.map((tab) => {
           const Icon = tab.icon;
@@ -260,8 +280,10 @@ export const FloatingPlayerBar: React.FC = () => {
           );
         })}
       </nav>
+      )}
 
       {/* Bottom-Right Floating HarmonyOS Vinyl Mini-Player Capsule */}
+      {!isStageOpen && (
       <div className="pointer-events-auto h-[58px] md:h-[62px] pl-2.5 pr-3.5 sm:pr-4 rounded-full theme-harmony-dock backdrop-blur-2xl border flex items-center gap-3 sm:gap-4 w-full md:w-auto md:min-w-[330px] lg:min-w-[400px] md:max-w-[460px] lg:max-w-[540px] md:flex-1 relative overflow-hidden">
         {/* Subtle Bottom Progress Line Inside Capsule */}
         <MiniCapsuleProgressLine
@@ -407,6 +429,7 @@ export const FloatingPlayerBar: React.FC = () => {
           </button>
         </div>
       </div>
+      )}
     </div>
   );
 };

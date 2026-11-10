@@ -35,15 +35,29 @@ describe('Future Music Player Multi-Source Store & Huawei Sync Engine', () => {
   });
 
   it('executes Smart Fallback when a preferred source only has a 45s preview stream', () => {
-    // Track 1 (富士山下) has huawei=full, qq=preview, navidrome=full
+    // Track 1 (富士山下) has huawei=full, netease=preview
     const fushishan = INITIAL_TRACKS.find((t) => t.id === 'trk_fushishan')!;
-    usePlayerStore.getState().playTrack(fushishan, 'qq');
+    usePlayerStore.getState().playTrack(fushishan, 'netease');
 
     const updated = usePlayerStore.getState();
     expect(updated.currentTrack.id).toBe('trk_fushishan');
-    // Should automatically fall back from 'qq' (preview) to 'huawei' or 'navidrome' (full)
-    expect(updated.activeSourceForPlayback).not.toBe('qq');
-    expect(['huawei', 'navidrome']).toContain(updated.activeSourceForPlayback);
+    // Should automatically fall back from 'netease' (preview) to 'huawei' (full)
+    expect(updated.activeSourceForPlayback).toBe('huawei');
+  });
+
+  it('retains only the 3 real audio sources (huawei, local, netease) and supports NetEase UID modal', () => {
+    const store = usePlayerStore.getState();
+    expect(store.sources.map((s) => s.id)).toEqual([
+      'huawei',
+      'local',
+      'netease',
+    ]);
+    expect(store.fallbackPriority).toEqual(['local', 'huawei', 'netease']);
+
+    store.setNeteaseModalOpen(true);
+    expect(usePlayerStore.getState().isNeteaseModalOpen).toBe(true);
+    store.setNeteaseModalOpen(false);
+    expect(usePlayerStore.getState().isNeteaseModalOpen).toBe(false);
   });
 
   it('preserves local favorites when signing out of a third-party source', () => {

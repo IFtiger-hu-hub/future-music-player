@@ -9,6 +9,7 @@ import { AmbientLyricStage } from './components/AmbientLyricStage';
 import { DesktopLyricOverlay } from './components/DesktopLyricOverlay';
 import {
   HuaweiAuthModal,
+  NeteaseConnectModal,
   ImportAssetsModal,
   CommandPaletteModal,
 } from './components/Modals';
@@ -88,7 +89,7 @@ export function App() {
     }
   }, [setThemeId]);
 
-  // Hydrate persisted library from SQLite (~/.config/future-music/library.db) & discover Huawei session
+  // Hydrate persisted library from SQLite (~/.config/future-music/library.db) & discover Huawei / NetEase sessions
   useEffect(() => {
     void usePlayerStore.getState().hydrateLibraryFromSqlite();
     musicGateway.fetchHuaweiStatus().then((status) => {
@@ -97,6 +98,24 @@ export function App() {
         completeHuaweiReauth(`华为账号 · ${uid}`);
         void triggerHuaweiSync();
       }
+    });
+    musicGateway.fetchNeteaseStatus().then((ncm) => {
+      if (ncm?.loggedIn && ncm.uid) {
+        usePlayerStore.setState((state) => ({
+          sources: state.sources.map((s) =>
+            s.id === 'netease'
+              ? {
+                  ...s,
+                  loggedIn: true,
+                  accountName: `网易云 · ${ncm.nickname || ncm.uid}`,
+                  syncStatus: 'updated',
+                }
+              : s
+          ),
+        }));
+      }
+      // Pre-warm NetEase official charts & playlists if none are persisted yet
+      void usePlayerStore.getState().ensureNeteaseContentLoaded();
     });
   }, [completeHuaweiReauth, triggerHuaweiSync]);
 
@@ -164,6 +183,7 @@ export function App() {
       {/* Sheets & Modals */}
       <div className="theme-main-area">
         <HuaweiAuthModal />
+        <NeteaseConnectModal />
         <ImportAssetsModal />
         <CommandPaletteModal />
       </div>

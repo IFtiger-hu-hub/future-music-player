@@ -258,11 +258,267 @@ export const HuaweiAuthModal: React.FC = () => {
   );
 };
 
+export const NeteaseConnectModal: React.FC = () => {
+  const isOpen = usePlayerStore((s) => s.isNeteaseModalOpen);
+  const setOpen = usePlayerStore((s) => s.setNeteaseModalOpen);
+  const isSyncing = usePlayerStore((s) => s.isSyncingNetease);
+  const syncNeteaseByUid = usePlayerStore((s) => s.syncNeteaseByUid);
+
+  const [uidInput, setUidInput] = useState('');
+  const [cookieInput, setCookieInput] = useState('');
+  const [showCookie, setShowCookie] = useState(false);
+
+  const [qrSvg, setQrSvg] = useState<string>('');
+  const [unikey, setUnikey] = useState<string>('');
+  const [qrStatus, setQrStatus] = useState<string>('正在生成网易云扫码二维码...');
+  const [qrExpired, setQrExpired] = useState<boolean>(false);
+
+  const loadQrCode = async () => {
+    setQrExpired(false);
+    setQrStatus('请使用网易云音乐 App 扫码登录');
+    const res = await musicGateway.createNeteaseQr();
+    if (res?.ok && res.unikey && res.qrSvg) {
+      setUnikey(res.unikey);
+      setQrSvg(res.qrSvg);
+    } else {
+      setQrStatus('二维码生成失败，可直接输入下方昵称或 UID 同步');
+    }
+  };
+
+  useEffect(() => {
+    if (!isOpen) {
+      setUnikey('');
+      setQrSvg('');
+      return;
+    }
+    musicGateway.fetchNeteaseStatus().then((st) => {
+      if (st?.nickname) {
+        setUidInput(st.nickname);
+      } else if (st?.uid) {
+        setUidInput(st.uid);
+      }
+    });
+    void loadQrCode();
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !unikey || qrExpired || isSyncing) return;
+    let cancelled = false;
+    const timer = window.setInterval(async () => {
+      if (cancelled) return;
+      const poll = await musicGateway.pollNeteaseQr({ unikey });
+      if (!poll || cancelled) return;
+      if (poll.code === 800) {
+        setQrExpired(true);
+        setQrStatus('二维码已过期，点击刷新重试');
+      } else if (poll.code === 801) {
+        setQrStatus('等待网易云音乐 App 扫码...');
+      } else if (poll.code === 802) {
+        const nick = poll.nickname || '';
+        const resolvedUid = poll.uid || nick;
+        if (nick) {
+          setUidInput(nick);
+        }
+        setQrStatus(
+          nick
+            ? `已识别账号「${nick}」，请在手机确认或直接点击下方同步`
+            : '扫码成功，请在手机上点击确认授权...'
+        );
+        if (resolvedUid && !isSyncing) {
+          cancelled = true;
+          await syncNeteaseByUid(resolvedUid, poll.cookie || undefined);
+        }
+      } else if (poll.code === 803) {
+        cancelled = true;
+        setQrStatus('授权成功，正在同步歌单...');
+        const target = poll.uid || poll.nickname || uidInput.trim();
+        if (target) {
+          await syncNeteaseByUid(target, poll.cookie || undefined);
+        }
+      }
+    }, 1800);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [isOpen, unikey, qrExpired, isSyncing, syncNeteaseByUid, uidInput]);
+
+  const handleSync = async () => {
+    const trimmed = uidInput.trim();
+    if (!trimmed) return;
+    await syncNeteaseByUid(trimmed, cookieInput.trim() || undefined);
+  };
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={() => !isSyncing && setOpen(false)}
+          className="fixed inset-0 z-50 bg-black/45 backdrop-blur-md flex items-center justify-center p-4 select-none"
+        >
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0, y: 10 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.95, opacity: 0, y: 10 }}
+            transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-[460px] rounded-[28px] theme-modal backdrop-blur-2xl border overflow-hidden"
+          >
+            <div className="flex justify-end px-5 pt-4">
+              <button
+                onClick={() => setOpen(false)}
+                className="w-7 h-7 rounded-full bg-white/[0.08] hover:bg-white/[0.15] flex items-center justify-center text-white/60 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="px-7 pb-6 pt-0.5 text-center">
+              <div className="flex items-center justify-center gap-2.5">
+                <div className="w-10 h-10 rounded-[14px] bg-gradient-to-br from-[#E60026] to-[#990019] flex items-center justify-center shadow-[0_8px_20px_rgba(230,0,38,0.3)] font-bold text-lg !text-white">
+                  网
+                </div>
+                <div className="text-left">
+                  <h3 className="text-[18px] font-bold text-white tracking-tight leading-tight">
+                    连接网易云音乐账号
+                  </h3>
+                  <p className="text-[11.5px] text-white/55">
+                    支持 App 扫码识别或直接输入昵称 / UID 同步歌单
+                  </p>
+                </div>
+              </div>
+
+              {/* QR Code Scan Area */}
+              <div className="mt-4 p-3.5 rounded-2xl bg-white/[0.04] border border-white/[0.08] flex items-center gap-4 text-left">
+                <div
+                  onClick={() => qrExpired && void loadQrCode()}
+                  className="w-28 h-28 rounded-xl bg-white p-1.5 shrink-0 flex items-center justify-center relative overflow-hidden cursor-pointer shadow-sm"
+                >
+                  {qrSvg ? (
+                    <div
+                      className="w-full h-full [&>svg]:w-full [&>svg]:h-full"
+                      dangerouslySetInnerHTML={{ __html: qrSvg }}
+                    />
+                  ) : (
+                    <RefreshCw className="w-5 h-5 text-neutral-400 animate-spin" />
+                  )}
+                  {qrExpired && (
+                    <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center text-[11px] font-semibold !text-white gap-1">
+                      <RefreshCw className="w-4 h-4 !text-white" />
+                      <span>点击刷新</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <div className="text-[13px] font-bold text-white">
+                    方式一：网易云 App 扫码
+                  </div>
+                  <p className="text-[11.5px] text-white/60 leading-relaxed">
+                    打开手机「网易云音乐」扫一扫左侧二维码，识别昵称后自动拉取「我喜欢的音乐」与全部自建/收藏歌单。
+                  </p>
+                  <div className="flex items-center justify-between pt-0.5">
+                    <span className="text-[11px] font-medium text-[#FA2D48] truncate">
+                      {qrStatus}
+                    </span>
+                    <button
+                      onClick={() => void loadQrCode()}
+                      className="text-[11px] text-white/50 hover:text-white flex items-center gap-1 shrink-0 cursor-pointer ml-2"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      <span>刷新</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 text-left space-y-2.5">
+                <div>
+                  <div className="flex items-center justify-between pl-1">
+                    <label className="text-[12px] font-semibold text-white/85">
+                      方式二：直接输入网易云昵称或 UID（免扫码秒同步）
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setUidInput('IFTiger')}
+                      className="text-[11px] text-[#FA2D48] hover:underline cursor-pointer"
+                    >
+                      填入 IFTiger
+                    </button>
+                  </div>
+                  <input
+                    value={uidInput}
+                    onChange={(e) => setUidInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && uidInput.trim() && !isSyncing) {
+                        void handleSync();
+                      }
+                    }}
+                    placeholder="直接输入昵称（如 IFTiger）或数字 UID..."
+                    className="w-full mt-1.5 px-4 py-2.5 rounded-full bg-white/[0.06] border border-white/[0.1] text-[13px] text-white placeholder-white/35 focus:outline-none focus:border-[#E60026]"
+                  />
+                </div>
+
+                <div>
+                  <button
+                    onClick={() => setShowCookie(!showCookie)}
+                    className="text-[11.5px] text-white/50 hover:text-white/80 flex items-center gap-1 cursor-pointer pl-1"
+                  >
+                    <span>可选：填入 MUSIC_U Cookie 解锁黑胶直连</span>
+                    {showCookie ? (
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    ) : (
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                  {showCookie && (
+                    <input
+                      value={cookieInput}
+                      onChange={(e) => setCookieInput(e.target.value)}
+                      placeholder="MUSIC_U=xxxx; (可留空，VIP 锁曲自动由华为无损替补点亮)"
+                      className="w-full mt-1.5 px-4 py-2 rounded-full bg-white/[0.06] border border-white/[0.1] text-[12px] text-white placeholder-white/35 focus:outline-none focus:border-[#E60026]"
+                    />
+                  )}
+                </div>
+              </div>
+
+              <button
+                onClick={handleSync}
+                disabled={isSyncing || !uidInput.trim()}
+                className="w-full mt-5 py-3 px-5 rounded-full bg-[#E60026] hover:bg-[#FF1A40] disabled:opacity-50 text-[14px] font-semibold !text-white shadow-[0_8px_24px_rgba(230,0,38,0.3)] transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {isSyncing ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin !text-white" />
+                    <span className="!text-white">正在同步网易云歌单与曲目...</span>
+                  </>
+                ) : (
+                  <span className="!text-white">立即同步网易云歌单</span>
+                )}
+              </button>
+
+              <div className="mt-3.5 flex items-center justify-center gap-1.5 text-[11px] text-white/45">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+                <span>支持原词 + 中文翻译 + 罗马音对齐，VIP 曲目自动切换华为无损播放</span>
+              </div>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+};
+
 export const ImportAssetsModal: React.FC = () => {
   const isOpen = usePlayerStore((s) => s.isImportModalOpen);
   const setOpen = usePlayerStore((s) => s.setImportModalOpen);
   const sources = usePlayerStore((s) => s.sources);
   const triggerHuaweiSync = usePlayerStore((s) => s.triggerHuaweiSync);
+  const setNeteaseModalOpen = usePlayerStore((s) => s.setNeteaseModalOpen);
   const scanLocalFolder = usePlayerStore((s) => s.scanLocalFolder);
   const toggleSourceLogin = usePlayerStore((s) => s.toggleSourceLogin);
 
@@ -325,6 +581,16 @@ export const ImportAssetsModal: React.FC = () => {
                     >
                       <HardDrive className="w-3.5 h-3.5" />
                       <span>扫描目录</span>
+                    </button>
+                  ) : src.id === 'netease' ? (
+                    <button
+                      onClick={() => {
+                        setOpen(false);
+                        setNeteaseModalOpen(true);
+                      }}
+                      className="px-3.5 py-1.5 rounded-full bg-[#E60026] hover:bg-[#FF1A40] !text-white text-xs font-semibold shrink-0 cursor-pointer"
+                    >
+                      同步 UID 歌单
                     </button>
                   ) : src.loggedIn ? (
                     <button

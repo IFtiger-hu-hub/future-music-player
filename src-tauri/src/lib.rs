@@ -93,6 +93,61 @@ async fn fetch_huawei_playlist_detail(playlist_id: String) -> Result<serde_json:
 }
 
 #[tauri::command]
+fn get_netease_status() -> serde_json::Value {
+    if let Some(sess) = bridge_server::load_netease_session() {
+        return serde_json::json!({
+            "loggedIn": true,
+            "uid": sess.uid,
+            "nickname": sess.nickname,
+            "avatarUrl": sess.avatar_url,
+            "hasCookie": !sess.cookie.trim().is_empty(),
+        });
+    }
+    serde_json::json!({ "loggedIn": false })
+}
+
+#[tauri::command]
+async fn sync_netease_library(params: serde_json::Value) -> Result<serde_json::Value, String> {
+    bridge_server::handle_netease_sync(&params).await
+}
+
+#[tauri::command]
+fn logout_netease_session() -> serde_json::Value {
+    bridge_server::clear_netease_session();
+    serde_json::json!({ "ok": true })
+}
+
+#[tauri::command]
+async fn search_netease_catalog(query: String) -> Result<serde_json::Value, String> {
+    bridge_server::handle_netease_search(&query).await
+}
+
+#[tauri::command]
+async fn fetch_netease_recommendations() -> Result<serde_json::Value, String> {
+    bridge_server::handle_netease_recommendations().await
+}
+
+#[tauri::command]
+async fn fetch_netease_playlist_detail(playlist_id: String) -> Result<serde_json::Value, String> {
+    bridge_server::handle_netease_playlist_detail(&playlist_id).await
+}
+
+#[tauri::command]
+async fn resolve_netease_track(params: serde_json::Value) -> Result<serde_json::Value, String> {
+    bridge_server::handle_netease_resolve(&params).await
+}
+
+#[tauri::command]
+async fn create_netease_qr() -> Result<serde_json::Value, String> {
+    bridge_server::handle_netease_qr_create().await
+}
+
+#[tauri::command]
+async fn poll_netease_qr(params: serde_json::Value) -> Result<serde_json::Value, String> {
+    bridge_server::handle_netease_qr_poll(&params).await
+}
+
+#[tauri::command]
 fn get_huawei_auth_contract(state: State<'_, AppRuntimeState>) -> HuaweiAuthPreview {
     let attempt = huawei::AuthAttempt::new(huawei::now_epoch_secs());
     let auth_url = attempt.authorize_url();
@@ -286,23 +341,6 @@ struct GList {
 extern "C" {
     fn webkit_web_context_get_default() -> *mut std::ffi::c_void;
     fn webkit_web_context_set_cache_model(context: *mut std::ffi::c_void, cache_model: i32);
-    fn webkit_memory_pressure_settings_new() -> *mut std::ffi::c_void;
-    fn webkit_memory_pressure_settings_set_memory_limit(
-        settings: *mut std::ffi::c_void,
-        memory_limit: u32,
-    );
-    fn webkit_memory_pressure_settings_set_conservative_threshold(
-        settings: *mut std::ffi::c_void,
-        value: f64,
-    );
-    fn webkit_memory_pressure_settings_set_strict_threshold(
-        settings: *mut std::ffi::c_void,
-        value: f64,
-    );
-    fn webkit_memory_pressure_settings_free(settings: *mut std::ffi::c_void);
-    fn webkit_website_data_manager_set_memory_pressure_settings(
-        settings: *mut std::ffi::c_void,
-    );
     fn webkit_web_view_get_type() -> usize;
     fn webkit_web_view_get_settings(webview: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
     fn webkit_settings_set_hardware_acceleration_policy(
@@ -374,18 +412,6 @@ fn enable_webkit_hardware_acceleration_all_windows() {
 #[cfg(target_os = "linux")]
 fn configure_webkit_low_memory() {
     unsafe {
-        // Use a balanced 384 MiB ceiling with 0.75/0.90 thresholds and
-        // WEBKIT_CACHE_MODEL_DOCUMENT_BROWSER (2) so GPU tile textures and
-        // decoded cover bitmaps remain cached during scrolling without thrashing.
-        let settings = webkit_memory_pressure_settings_new();
-        if !settings.is_null() {
-            webkit_memory_pressure_settings_set_memory_limit(settings, 384);
-            webkit_memory_pressure_settings_set_conservative_threshold(settings, 0.75);
-            webkit_memory_pressure_settings_set_strict_threshold(settings, 0.90);
-            webkit_website_data_manager_set_memory_pressure_settings(settings);
-            webkit_memory_pressure_settings_free(settings);
-        }
-
         let ctx = webkit_web_context_get_default();
         if !ctx.is_null() {
             // 2 = WEBKIT_CACHE_MODEL_DOCUMENT_BROWSER (keeps active GPU tiles & cover bitmaps)
@@ -461,6 +487,53 @@ fn start_desktop_lyric_dragging(app: AppHandle) -> Result<(), String> {
         win.start_dragging().map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+#[tauri::command]
+fn set_main_window_fullscreen(app: AppHandle, fullscreen: bool) -> Result<bool, String> {
+    if let Some(win) = app.get_webview_window("main") {
+        win.set_fullscreen(fullscreen).map_err(|e| e.to_string())?;
+        #[cfg(target_os = "linux")]
+        enable_webkit_hardware_acceleration_all_windows();
+        return win.is_fullscreen().map_err(|e| e.to_string());
+    }
+    Ok(fullscreen)
+}
+
+#[tauri::command]
+async fn fetch_cover_data_url(url: String) -> Result<String, String> {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    if url.starts_with("data:") {
+        return Ok(url);
+    }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client
+        .get(&url)
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        )
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    let content_type = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("image/jpeg")
+        .split(';')
+        .next()
+        .unwrap_or("image/jpeg")
+        .to_string();
+    let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
+    let b64 = STANDARD.encode(&bytes);
+    Ok(format!("data:{content_type};base64,{b64}"))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -587,6 +660,15 @@ pub fn run() {
             search_huawei_catalog,
             fetch_huawei_recommendations,
             fetch_huawei_playlist_detail,
+            get_netease_status,
+            sync_netease_library,
+            logout_netease_session,
+            search_netease_catalog,
+            fetch_netease_recommendations,
+            fetch_netease_playlist_detail,
+            resolve_netease_track,
+            create_netease_qr,
+            poll_netease_qr,
             get_huawei_auth_contract,
             start_huawei_webview_login,
             submit_huawei_callback_url,
@@ -597,7 +679,9 @@ pub fn run() {
             save_local_playlist,
             set_desktop_lyric_open,
             set_desktop_lyric_locked,
-            start_desktop_lyric_dragging
+            start_desktop_lyric_dragging,
+            set_main_window_fullscreen,
+            fetch_cover_data_url
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -1001,5 +1085,61 @@ mod tests {
         assert_eq!(snap["tracks"].as_array().unwrap().len(), 1);
         assert_eq!(snap["tracks"][0]["title"], "晚风心里吹");
         assert_eq!(snap["playlists"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_netease_yrc_lyrics_and_sqlite_sync_roundtrip() {
+        let raw_yrc = "[12000,3200](12000,800,0)晴(12800,1200,0)天(14000,1200,0)的雨";
+        let yrc_lines = parse_netease_yrc(raw_yrc);
+        assert_eq!(yrc_lines.len(), 1);
+        assert_eq!(yrc_lines[0].time_ms, 12000);
+        assert_eq!(yrc_lines[0].text, "晴天的雨");
+        assert_eq!(yrc_lines[0].words.len(), 3);
+        assert_eq!(yrc_lines[0].words[1].text, "天");
+        assert_eq!(yrc_lines[0].words[1].start_ms, 12800);
+
+        let trans = parse_lrc("[00:12.00]Rain on a sunny day");
+        let roma = parse_lrc("[00:12.00]qing tian de yu");
+        let merged = merge_lyric_romanizations(merge_lyric_subtitles(yrc_lines, &trans), &roma);
+        assert_eq!(merged[0].translation.as_deref(), Some("Rain on a sunny day"));
+        assert_eq!(merged[0].romanization.as_deref(), Some("qing tian de yu"));
+
+        let db = LibraryDb::open_in_memory().expect("open in-memory db");
+        let ncm_tracks = vec![serde_json::json!({
+            "id": "ncm_186016",
+            "sourceTrackId": "186016",
+            "title": "晴天",
+            "artists": ["周杰伦"],
+            "album": "叶惠美",
+            "durationSeconds": 269,
+            "coverUrl": "https://p1.music.126.net/cover.jpg?param=300y300"
+        })];
+        let ncm_playlists = vec![serde_json::json!({
+            "id": "pl_ncm_2218171336",
+            "sourcePlaylistId": "2218171336",
+            "name": "周杰伦精选",
+            "description": "来自网易云音乐歌单",
+            "coverUrl": "https://p1.music.126.net/cover.jpg?param=300y300",
+            "trackCount": 1,
+            "trackIds": ["ncm_186016"],
+            "tracks": ncm_tracks
+        })];
+
+        db.persist_netease_sync(
+            "32953014",
+            "binaryify",
+            &ncm_tracks,
+            &ncm_playlists,
+            1710000002000,
+        )
+        .expect("persist netease sync");
+
+        let snap = db.load_runtime_snapshot().expect("load runtime snapshot");
+        assert_eq!(snap["ok"], true);
+        assert_eq!(snap["tracks"].as_array().unwrap().len(), 1);
+        assert_eq!(snap["tracks"][0]["id"], "ncm_186016");
+        assert_eq!(snap["playlists"].as_array().unwrap().len(), 1);
+        assert_eq!(snap["playlists"][0]["id"], "pl_ncm_2218171336");
+        assert_eq!(snap["playlists"][0]["source"], "netease");
     }
 }

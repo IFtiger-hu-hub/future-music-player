@@ -7,12 +7,12 @@ fn main() {
     // hardware acceleration without the 240MB static WKFastMalloc reservation.
     #[cfg(target_os = "linux")]
     {
-        // Ensure DMA-BUF GPU renderer is NOT disabled unless explicitly requested by user
+        // Ensure DMA-BUF GPU renderer and hardware compositing mode are never disabled
+        std::env::remove_var("WEBKIT_DISABLE_DMABUF_RENDERER");
+        std::env::remove_var("WEBKIT_DISABLE_COMPOSITING_MODE");
         for (k, v) in [
-            ("WebKitSystemHeapOverrideEnablement", "0"),
             ("WEBKIT_SKIA_ENABLE_CPU_RENDERING", "0"),
-            ("WEBKIT_SKIA_GPU_PAINTING_THREADS", "2"),
-            ("JSC_gcMaxHeapSize", "134217728"),
+            ("WEBKIT_SKIA_GPU_PAINTING_THREADS", "4"),
         ] {
             if std::env::var_os(k).is_none() {
                 std::env::set_var(k, v);

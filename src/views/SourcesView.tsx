@@ -7,6 +7,7 @@ export const SourcesView: React.FC = () => {
   const setActiveNav = usePlayerStore((s) => s.setActiveNav);
   const scanLocalFolder = usePlayerStore((s) => s.scanLocalFolder);
   const triggerHuaweiSync = usePlayerStore((s) => s.triggerHuaweiSync);
+  const setNeteaseModalOpen = usePlayerStore((s) => s.setNeteaseModalOpen);
   const toggleSourceLogin = usePlayerStore((s) => s.toggleSourceLogin);
 
   return (
@@ -110,6 +111,14 @@ export const SourcesView: React.FC = () => {
                         同步云端资产
                       </button>
                     )}
+                    {src.id === 'netease' && (
+                      <button
+                        onClick={() => setNeteaseModalOpen(true)}
+                        className="h-8.5 px-4 rounded-full btn-harmony-primary text-[12px] font-semibold cursor-pointer"
+                      >
+                        同步 UID 歌单
+                      </button>
+                    )}
                     <button
                       onClick={() => toggleSourceLogin(src.id)}
                       className={`h-8.5 px-4 rounded-full text-[12px] font-semibold cursor-pointer ${
@@ -124,7 +133,7 @@ export const SourcesView: React.FC = () => {
                           : '扫码登录'
                         : src.loggedIn
                         ? '断开连接'
-                        : '连接账号'}
+                        : '启用音源'}
                     </button>
                   </>
                 )}

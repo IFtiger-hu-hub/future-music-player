@@ -40,6 +40,10 @@ interface PersistedUiPrefs {
   lyricOffsetMs?: number;
   jevEnabled?: boolean;
   historyTrackIds?: string[];
+  rememberPlaybackProgress?: boolean;
+  lastTrackSnapshot?: CanonicalTrack;
+  lastPlaybackSource?: SourceId;
+  lastPlaybackTimeMs?: number;
 }
 
 function loadPersistedUiPrefs(): PersistedUiPrefs {
@@ -67,6 +71,21 @@ function savePersistedUiPrefs(partial: PersistedUiPrefs): void {
 }
 
 const initialUiPrefs = loadPersistedUiPrefs();
+const initialRememberPlayback = initialUiPrefs.rememberPlaybackProgress ?? true;
+const initialRestoredTrack: CanonicalTrack | null =
+  initialRememberPlayback &&
+  initialUiPrefs.lastTrackSnapshot &&
+  initialUiPrefs.lastTrackSnapshot.id
+    ? {
+        ...initialUiPrefs.lastTrackSnapshot,
+        audioUrl: initialUiPrefs.lastTrackSnapshot.audioUrl?.includes(
+          '/api/local/stream'
+        )
+          ? initialUiPrefs.lastTrackSnapshot.audioUrl
+          : undefined,
+      }
+    : null;
+let lastPlaybackPersistWallMs = 0;
 
 const INITIAL_MERGE_AUDITS: MergeAuditRecord[] = [
   {
@@ -83,9 +102,9 @@ const INITIAL_MERGE_AUDITS: MergeAuditRecord[] = [
   {
     id: 'merge_fuji_02',
     winnerTrackId: 'trk_fushishan',
-    loserTrackId: 'trk_fuji_qq_alias',
+    loserTrackId: 'trk_fuji_ncm_alias',
     winnerTitle: '富士山下 (华为 FLAC 主记录)',
-    loserTitle: "富士山下 (What's Going On) - 陈奕迅",
+    loserTitle: "富士山下 (What's Going On) - 陈奕迅 (网易云)",
     method: 'jev',
     score: 0.93,
     createdAt: '昨天 · Jev 灰区决策模型合并',
@@ -111,8 +130,10 @@ export interface PlayerState {
   isStageOpen: boolean;
   isCommandPaletteOpen: boolean;
   isHuaweiAuthModalOpen: boolean;
+  isNeteaseModalOpen: boolean;
   isImportModalOpen: boolean;
   isSyncingHuawei: boolean;
+  isSyncingNetease: boolean;
   isResolvingAudio: boolean;
   isLoadingPlaylistDetail: boolean;
 
@@ -144,11 +165,14 @@ export interface PlayerState {
   volume: number;
   qualityPreference: 'lossless' | 'hires' | 'standard';
   lyricOffsetMs: number;
+  rememberPlaybackProgress: boolean;
+  lastSwitchDirection: 'next' | 'prev';
 
   // Toasts
   toasts: ToastMessage[];
 
   // Actions
+  setRememberPlaybackProgress: (enabled: boolean) => void;
   setActiveNav: (nav: NavSection) => void;
   setActiveSourceFilter: (source: 'all' | SourceId) => void;
   setSelectedPlaylistId: (id: string | null) => void;
@@ -156,9 +180,12 @@ export interface PlayerState {
   setStageOpen: (open: boolean) => void;
   setCommandPaletteOpen: (open: boolean) => void;
   setHuaweiAuthModalOpen: (open: boolean) => void;
+  setNeteaseModalOpen: (open: boolean) => void;
   setImportModalOpen: (open: boolean) => void;
   setVolume: (vol: number) => void;
   searchHuaweiCatalog: (query: string) => Promise<void>;
+  syncNeteaseByUid: (uid: string, cookie?: string) => Promise<void>;
+  ensureNeteaseContentLoaded: () => Promise<void>;
 
   setDesktopLyricOpen: (open: boolean) => void;
   setDesktopLyricLocked: (locked: boolean) => void;
@@ -223,8 +250,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   isStageOpen: false,
   isCommandPaletteOpen: false,
   isHuaweiAuthModalOpen: false,
+  isNeteaseModalOpen: false,
   isImportModalOpen: false,
   isSyncingHuawei: false,
+  isSyncingNetease: false,
   isResolvingAudio: false,
   isLoadingPlaylistDetail: false,
 
@@ -239,10 +268,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   jevEndpoint: 'https://api.openai.com/v1/chat/completions',
   jevModel: 'gpt-4o-mini',
   mergeAudits: INITIAL_MERGE_AUDITS,
-  fallbackPriority: ['local', 'huawei', 'navidrome', 'netease', 'qq'],
+  fallbackPriority: ['local', 'huawei', 'netease'],
 
   sources: INITIAL_SOURCES,
-  tracks: INITIAL_TRACKS,
+  tracks:
+    initialRestoredTrack &&
+    !INITIAL_TRACKS.some((t) => t.id === initialRestoredTrack.id)
+      ? [initialRestoredTrack, ...INITIAL_TRACKS]
+      : INITIAL_TRACKS,
   playlists: INITIAL_PLAYLISTS,
   historyTrackIds: initialUiPrefs.historyTrackIds ?? [
     'trk_wanfeng',
@@ -251,23 +284,81 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     'trk_yeqv',
   ],
 
-  currentTrack: INITIAL_TRACKS[0],
-  activeSourceForPlayback: 'huawei',
+  currentTrack: initialRestoredTrack ?? INITIAL_TRACKS[0],
+  activeSourceForPlayback: initialUiPrefs.lastPlaybackSource ?? 'huawei',
   isPlaying: false,
-  currentTimeMs: 0,
+  currentTimeMs: initialRememberPlayback
+    ? Math.max(0, initialUiPrefs.lastPlaybackTimeMs ?? 0)
+    : 0,
   volume: initialUiPrefs.volume ?? 82,
   qualityPreference: 'lossless',
   lyricOffsetMs: initialUiPrefs.lyricOffsetMs ?? 0,
+  rememberPlaybackProgress: initialRememberPlayback,
+  lastSwitchDirection: 'next',
 
   toasts: [],
 
+  setRememberPlaybackProgress: (enabled) => {
+    const { currentTrack, activeSourceForPlayback, currentTimeMs } = get();
+    if (enabled) {
+      savePersistedUiPrefs({
+        rememberPlaybackProgress: true,
+        lastTrackSnapshot: currentTrack,
+        lastPlaybackSource: activeSourceForPlayback,
+        lastPlaybackTimeMs: currentTimeMs,
+      });
+    } else {
+      savePersistedUiPrefs({
+        rememberPlaybackProgress: false,
+        lastTrackSnapshot: undefined,
+        lastPlaybackTimeMs: 0,
+      });
+    }
+    set({ rememberPlaybackProgress: enabled });
+    get().pushToast(
+      enabled ? '已开启退出断点续播记录' : '已关闭退出断点续播记录',
+      enabled
+        ? '退出或重启后将自动恢复上次播放的曲目、音源与精确时间轴位置'
+        : '下次启动将不再恢复上次播放进度',
+      enabled ? 'success' : 'default'
+    );
+  },
+
   setActiveNav: (nav) => set({ activeNav: nav }),
-  setActiveSourceFilter: (source) => set({ activeSourceFilter: source }),
+  setActiveSourceFilter: (source) => {
+    set((state) => {
+      let nextSelected = state.selectedPlaylistId;
+      if (source === 'netease') {
+        const firstNcm = state.playlists.find((p) => p.source === 'netease');
+        if (firstNcm) {
+          nextSelected = firstNcm.id;
+        }
+      } else if (source === 'huawei') {
+        const firstHw = state.playlists.find((p) => p.source === 'huawei');
+        if (firstHw) {
+          nextSelected = firstHw.id;
+        }
+      } else if (source === 'local') {
+        const firstLocal = state.playlists.find((p) => p.kind === 'local');
+        if (firstLocal) {
+          nextSelected = firstLocal.id;
+        }
+      }
+      return {
+        activeSourceFilter: source,
+        selectedPlaylistId: nextSelected,
+      };
+    });
+    if (source === 'netease') {
+      void get().ensureNeteaseContentLoaded();
+    }
+  },
   setSelectedPlaylistId: (id) => set({ selectedPlaylistId: id }),
   setSearchQuery: (q) => set({ searchQuery: q }),
   setStageOpen: (open) => set({ isStageOpen: open }),
   setCommandPaletteOpen: (open) => set({ isCommandPaletteOpen: open }),
   setHuaweiAuthModalOpen: (open) => set({ isHuaweiAuthModalOpen: open }),
+  setNeteaseModalOpen: (open) => set({ isNeteaseModalOpen: open }),
   setImportModalOpen: (open) => set({ isImportModalOpen: open }),
   setVolume: (vol) => {
     const clamped = Math.max(0, Math.min(100, vol));
@@ -277,7 +368,21 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   searchHuaweiCatalog: async (query) => {
     try {
-      const mapped = await musicGateway.searchHuaweiCatalog(query);
+      const filter = get().activeSourceFilter;
+      let mapped: CanonicalTrack[] = [];
+      if (filter === 'netease') {
+        mapped = await musicGateway.searchNeteaseCatalog(query);
+      } else if (filter === 'huawei') {
+        mapped = await musicGateway.searchHuaweiCatalog(query);
+      } else {
+        const [hwRes, ncmRes] = await Promise.allSettled([
+          musicGateway.searchHuaweiCatalog(query),
+          musicGateway.searchNeteaseCatalog(query),
+        ]);
+        const hwTracks = hwRes.status === 'fulfilled' ? hwRes.value : [];
+        const ncmTracks = ncmRes.status === 'fulfilled' ? ncmRes.value : [];
+        mapped = [...hwTracks, ...ncmTracks];
+      }
       if (mapped.length > 0) {
         set((state) => {
           const existingIds = new Set(state.tracks.map((t) => t.id));
@@ -286,7 +391,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         });
         get().pushToast(
           '云端曲库检索完成',
-          `已找到 ${mapped.length} 首匹配歌曲，点击即可直接播放真实无损流`,
+          `已找到 ${mapped.length} 首匹配歌曲（支持华为无损与网易云双语歌词）`,
           'success'
         );
       }
@@ -445,6 +550,13 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     const targetNav: NavSection =
       kind === 'imported' ? 'imported_playlists' : 'local_playlists';
     const shouldFetchRemote = Boolean(spec.sourcePlaylistId);
+    const isNeteasePlaylist =
+      spec.id.startsWith('pl_ncm_') ||
+      String(spec.sourcePlaylistId || '').startsWith('pl_ncm_');
+    const remoteSource: SourceId = isNeteasePlaylist ? 'netease' : 'huawei';
+    const resolvedTag = isNeteasePlaylist
+      ? '网易云真实曲目'
+      : '华为云端真实曲目';
 
     if (!spec.autoPlayFirst) {
       set((state) => {
@@ -468,7 +580,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           : {
               id: spec.id,
               kind,
-              source: kind === 'imported' || shouldFetchRemote ? 'huawei' : 'local',
+              source:
+                kind === 'imported' || shouldFetchRemote
+                  ? remoteSource
+                  : 'local',
               name: spec.name,
               description: spec.description,
               coverUrl:
@@ -476,7 +591,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
                 state.tracks[0]?.coverUrl ||
                 INITIAL_TRACKS[0].coverUrl,
               trackCount: initialTrackIds.length,
-              updatedAt: shouldFetchRemote ? '华为音乐实时歌单' : '精选推荐',
+              updatedAt: shouldFetchRemote
+                ? isNeteasePlaylist
+                  ? '网易云实时歌单'
+                  : '华为音乐实时歌单'
+                : '精选推荐',
               trackIds: initialTrackIds,
             };
 
@@ -486,7 +605,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
         const needsNetworkLoad =
           shouldFetchRemote &&
-          (!existing || existing.updatedAt !== '华为云端真实曲目');
+          (!existing ||
+            (existing.updatedAt !== '华为云端真实曲目' &&
+              existing.updatedAt !== '网易云真实曲目' &&
+              existing.trackIds.length === 0));
 
         return {
           playlists: nextPlaylists,
@@ -499,10 +621,18 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
     if (spec.sourcePlaylistId) {
       const existing = get().playlists.find((p) => p.id === spec.id);
-      if (existing && existing.updatedAt === '华为云端真实曲目' && existing.trackIds.length > 0) {
+      if (
+        existing &&
+        (existing.updatedAt === '华为云端真实曲目' ||
+          existing.updatedAt === '网易云真实曲目' ||
+          existing.updatedAt.includes('刚刚同步')) &&
+        existing.trackIds.length > 0
+      ) {
         set({ isLoadingPlaylistDetail: false });
         if (spec.autoPlayFirst) {
-          const firstTrack = get().tracks.find((t) => t.id === existing.trackIds[0]);
+          const firstTrack = get().tracks.find(
+            (t) => t.id === existing.trackIds[0]
+          );
           if (firstTrack) {
             get().playTrack(firstTrack);
           }
@@ -510,9 +640,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         return;
       }
 
-      const detail = await musicGateway.fetchHuaweiPlaylistDetail(
-        spec.sourcePlaylistId
-      );
+      const detail = isNeteasePlaylist
+        ? await musicGateway.fetchNeteasePlaylistDetail(spec.sourcePlaylistId)
+        : await musicGateway.fetchHuaweiPlaylistDetail(spec.sourcePlaylistId);
+
       if (detail && detail.tracks.length > 0) {
         const fetchedIds = detail.tracks.map((t) => t.id);
         set((state) => {
@@ -535,13 +666,18 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           const updatedPl: PlaylistItem = {
             id: spec.id,
             kind,
-            source: 'huawei',
-            name: spec.name || detail.name || '华为音乐精选歌单',
+            source: remoteSource,
+            name:
+              spec.name ||
+              detail.name ||
+              (isNeteasePlaylist ? '网易云精选歌单' : '华为音乐精选歌单'),
             description:
-              detail.description || spec.description || '华为音乐官方无损歌单',
+              detail.description ||
+              spec.description ||
+              (isNeteasePlaylist ? '来自网易云音乐歌单' : '华为音乐官方无损歌单'),
             coverUrl: spec.coverUrl || detail.coverUrl,
             trackCount: fetchedIds.length,
-            updatedAt: '华为云端真实曲目',
+            updatedAt: resolvedTag,
             trackIds: fetchedIds,
           };
 
@@ -558,7 +694,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         });
 
         if (spec.autoPlayFirst) {
-          const first = get().tracks.find((t) => t.id === fetchedIds[0]) || detail.tracks[0];
+          const first =
+            get().tracks.find((t) => t.id === fetchedIds[0]) ||
+            detail.tracks[0];
           if (first) {
             get().playTrack(first);
           }
@@ -592,17 +730,30 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       return;
     }
 
-    const hwBinding = track.bindings.find((b) => b.source === 'huawei') || binding;
-    const contentCode = hwBinding?.sourceTrackId || '';
+    const useNetease =
+      activeSrc === 'netease' ||
+      (binding?.source === 'netease' &&
+        !track.bindings.some((b) => b.source === 'huawei'));
+    const targetBinding = useNetease
+      ? track.bindings.find((b) => b.source === 'netease') || binding
+      : track.bindings.find((b) => b.source === 'huawei') || binding;
+    const contentCode = targetBinding?.sourceTrackId || '';
 
     set({ isResolvingAudio: true });
     try {
-      const res = await musicGateway.resolveTrackStream({
-        contentCode,
-        title: track.title,
-        artist: track.artists.join(' '),
-        quality: get().qualityPreference,
-      });
+      const res = useNetease
+        ? await musicGateway.resolveNeteaseTrack({
+            contentCode,
+            title: track.title,
+            artist: track.artists.join(' '),
+            quality: get().qualityPreference,
+          })
+        : await musicGateway.resolveTrackStream({
+            contentCode,
+            title: track.title,
+            artist: track.artists.join(' '),
+            quality: get().qualityPreference,
+          });
 
       if (!res.ok || !res.streamUrl) {
         set({ isResolvingAudio: false });
@@ -619,6 +770,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       }
 
       set((state) => {
+        const targetSource = useNetease ? 'netease' : 'huawei';
         const updatedTrack: CanonicalTrack = {
           ...(state.currentTrack.id === track.id ? state.currentTrack : track),
           audioUrl: res.streamUrl,
@@ -626,7 +778,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
           lyrics:
             res.lyrics && res.lyrics.length > 0 ? res.lyrics : track.lyrics,
           bindings: track.bindings.map((b) =>
-            b.source === 'huawei'
+            b.source === targetSource
               ? {
                   ...b,
                   sourceTrackId: res.contentCode || b.sourceTrackId,
@@ -638,6 +790,13 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
               : b
           ),
         };
+
+        if (state.rememberPlaybackProgress && state.currentTrack.id === track.id) {
+          savePersistedUiPrefs({
+            lastTrackSnapshot: updatedTrack,
+            lastPlaybackSource: targetSource,
+          });
+        }
 
         return {
           isResolvingAudio: false,
@@ -680,7 +839,16 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
     const prevHistory = get().historyTrackIds.filter((id) => id !== track.id);
     const nextHistory = [track.id, ...prevHistory].slice(0, 30);
-    savePersistedUiPrefs({ historyTrackIds: nextHistory });
+    if (get().rememberPlaybackProgress) {
+      savePersistedUiPrefs({
+        historyTrackIds: nextHistory,
+        lastTrackSnapshot: track,
+        lastPlaybackSource: chosenSource,
+        lastPlaybackTimeMs: 0,
+      });
+    } else {
+      savePersistedUiPrefs({ historyTrackIds: nextHistory });
+    }
     set({
       currentTrack: track,
       activeSourceForPlayback: chosenSource,
@@ -693,8 +861,21 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   togglePlay: () => {
-    const { isPlaying, currentTrack, activeSourceForPlayback } = get();
+    const {
+      isPlaying,
+      currentTrack,
+      activeSourceForPlayback,
+      currentTimeMs,
+      rememberPlaybackProgress,
+    } = get();
     const nextPlaying = !isPlaying;
+    if (rememberPlaybackProgress) {
+      savePersistedUiPrefs({
+        lastTrackSnapshot: currentTrack,
+        lastPlaybackSource: activeSourceForPlayback,
+        lastPlaybackTimeMs: currentTimeMs,
+      });
+    }
     set({ isPlaying: nextPlaying });
     if (nextPlaying && !currentTrack.audioUrl) {
       void get().resolveTrackStream(currentTrack, activeSourceForPlayback, true);
@@ -704,6 +885,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   nextTrack: () => {
     const { tracks, currentTrack } = get();
     if (tracks.length === 0) return;
+    set({ lastSwitchDirection: 'next' });
     const idx = tracks.findIndex((t) => t.id === currentTrack.id);
     const next = tracks[(idx + 1) % tracks.length];
     get().playTrack(next);
@@ -712,12 +894,28 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   prevTrack: () => {
     const { tracks, currentTrack } = get();
     if (tracks.length === 0) return;
+    set({ lastSwitchDirection: 'prev' });
     const idx = tracks.findIndex((t) => t.id === currentTrack.id);
     const prev = tracks[(idx - 1 + tracks.length) % tracks.length];
     get().playTrack(prev);
   },
 
-  setCurrentTimeMs: (ms) => set({ currentTimeMs: Math.max(0, ms) }),
+  setCurrentTimeMs: (ms) => {
+    const clamped = Math.max(0, ms);
+    set({ currentTimeMs: clamped });
+    const state = get();
+    if (state.rememberPlaybackProgress) {
+      const now = Date.now();
+      if (now - lastPlaybackPersistWallMs >= 1500) {
+        lastPlaybackPersistWallMs = now;
+        savePersistedUiPrefs({
+          lastTrackSnapshot: state.currentTrack,
+          lastPlaybackSource: state.activeSourceForPlayback,
+          lastPlaybackTimeMs: clamped,
+        });
+      }
+    }
+  },
 
   setTrackDurationSeconds: (trackId, seconds) => {
     if (!Number.isFinite(seconds) || seconds <= 0) return;
@@ -736,6 +934,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   seekToMs: (ms) => {
     const clamped = Math.max(0, ms);
     set({ currentTimeMs: clamped });
+    const state = get();
+    if (state.rememberPlaybackProgress) {
+      savePersistedUiPrefs({
+        lastTrackSnapshot: state.currentTrack,
+        lastPlaybackSource: state.activeSourceForPlayback,
+        lastPlaybackTimeMs: clamped,
+      });
+    }
     dispatchAudioSeek(clamped);
   },
 
@@ -806,13 +1012,36 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       return;
     }
     set((state) => {
-      const nextTracks = snap.tracks.length > 0 ? snap.tracks : state.tracks;
+      const rawTracks = snap.tracks.length > 0 ? snap.tracks : state.tracks;
       const nextPlaylists =
         snap.playlists.length > 0 ? snap.playlists : state.playlists;
-      const nextCurrent =
-        !state.isPlaying && nextTracks.length > 0
-          ? nextTracks[0]
-          : state.currentTrack;
+
+      const hasRestoredTrack =
+        state.rememberPlaybackProgress && Boolean(initialRestoredTrack);
+      const matchedInSnap = rawTracks.find(
+        (t) => t.id === state.currentTrack.id
+      );
+
+      let nextCurrent = state.currentTrack;
+      if (matchedInSnap) {
+        nextCurrent = {
+          ...matchedInSnap,
+          audioUrl: state.currentTrack.audioUrl || matchedInSnap.audioUrl,
+          lyrics:
+            state.currentTrack.lyrics.length > 1
+              ? state.currentTrack.lyrics
+              : matchedInSnap.lyrics,
+        };
+      } else if (!state.isPlaying && !hasRestoredTrack && rawTracks.length > 0) {
+        nextCurrent = rawTracks[0];
+      }
+
+      const nextTracks =
+        hasRestoredTrack &&
+        !rawTracks.some((t) => t.id === nextCurrent.id)
+          ? [nextCurrent, ...rawTracks]
+          : rawTracks;
+
       return {
         tracks: nextTracks,
         playlists: nextPlaylists,
@@ -832,16 +1061,39 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         await musicGateway.syncHuaweiLibrary();
 
       const wasPlaying = get().isPlaying;
-      const nextCurrent =
-        !wasPlaying && syncedTracks.length > 0
+      const hasRestoredTrack =
+        get().rememberPlaybackProgress && Boolean(initialRestoredTrack);
+      const currTrack = get().currentTrack;
+      const matchedSynced = syncedTracks.find((t) => t.id === currTrack.id);
+      const nextCurrent = matchedSynced
+        ? {
+            ...matchedSynced,
+            audioUrl: currTrack.audioUrl || matchedSynced.audioUrl,
+            lyrics:
+              currTrack.lyrics.length > 1
+                ? currTrack.lyrics
+                : matchedSynced.lyrics,
+          }
+        : !wasPlaying && !hasRestoredTrack && syncedTracks.length > 0
           ? syncedTracks[0]
-          : get().currentTrack;
+          : currTrack;
 
       set((state) => {
-        const localPlaylists = state.playlists.filter((p) => p.kind === 'local');
-        const nextPlaylists = [...syncedPlaylists, ...localPlaylists];
+        const preservedPlaylists = state.playlists.filter(
+          (p) => p.kind === 'local' || p.source === 'netease'
+        );
+        const nextPlaylists = [...syncedPlaylists, ...preservedPlaylists];
+        const existingOtherTracks = state.tracks.filter(
+          (t) => !t.id.startsWith('hw_')
+        );
+        const syncedIds = new Set(syncedTracks.map((t) => t.id));
         const nextTracks =
-          syncedTracks.length > 0 ? syncedTracks : state.tracks;
+          syncedTracks.length > 0
+            ? [
+                ...syncedTracks,
+                ...existingOtherTracks.filter((t) => !syncedIds.has(t.id)),
+              ]
+            : state.tracks;
 
         return {
           isSyncingHuawei: false,
@@ -889,6 +1141,178 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     }
   },
 
+  syncNeteaseByUid: async (uid, cookie) => {
+    if (get().isSyncingNetease) return;
+    set({ isSyncingNetease: true });
+    try {
+      const {
+        uid: syncedUid,
+        nickname,
+        tracks: ncmTracks,
+        playlists: ncmPlaylists,
+      } = await musicGateway.syncNeteaseLibrary({ uid, cookie });
+
+      set((state) => {
+        const preservedPlaylists = state.playlists.filter(
+          (p) => p.source !== 'netease'
+        );
+        const nextPlaylists = [...ncmPlaylists, ...preservedPlaylists];
+        const existingMap = new Map(state.tracks.map((t) => [t.id, t]));
+        for (const trk of ncmTracks) {
+          existingMap.set(trk.id, trk);
+        }
+        const nextTracks = Array.from(existingMap.values());
+        const favCount = ncmTracks.filter((t) => t.isFavorite).length;
+
+        return {
+          isSyncingNetease: false,
+          isNeteaseModalOpen: false,
+          tracks: nextTracks,
+          playlists: nextPlaylists,
+          selectedPlaylistId:
+            ncmPlaylists[0]?.id || state.selectedPlaylistId,
+          sources: state.sources.map((s) =>
+            s.id === 'netease'
+              ? {
+                  ...s,
+                  loggedIn: true,
+                  accountName: `网易云 · ${nickname} (${syncedUid})`,
+                  favoriteCount: favCount,
+                  playlistCount: ncmPlaylists.length,
+                  lastSyncAt: '刚刚同步',
+                  syncStatus: 'updated',
+                }
+              : s
+          ),
+        };
+      });
+
+      get().pushToast(
+        '网易云音乐同步成功',
+        `已连接「${nickname}」，同步 ${ncmPlaylists.length} 个歌单与双语歌词曲库`,
+        'success'
+      );
+    } catch (err) {
+      set({ isSyncingNetease: false });
+      get().pushToast(
+        '网易云同步失败',
+        err instanceof Error ? err.message : String(err),
+        'warning'
+      );
+    }
+  },
+
+  ensureNeteaseContentLoaded: async () => {
+    if ((import.meta as any).env?.MODE === 'test') return;
+    if (get().isSyncingNetease) return;
+
+    const hasRealNcmTracks = get().tracks.some((t) => t.id.startsWith('ncm_'));
+    const hasRealNcmPlaylists = get().playlists.some(
+      (p) => p.source === 'netease'
+    );
+    if (hasRealNcmTracks && hasRealNcmPlaylists) {
+      return;
+    }
+
+    set({ isSyncingNetease: true });
+    try {
+      const status = await musicGateway.fetchNeteaseStatus();
+      if (status?.loggedIn && status.uid) {
+        set({ isSyncingNetease: false });
+        await get().syncNeteaseByUid(status.uid);
+        return;
+      }
+
+      const [hotDetail, soarDetail, recs] = await Promise.all([
+        musicGateway.fetchNeteasePlaylistDetail('3778678'),
+        musicGateway.fetchNeteasePlaylistDetail('19723756'),
+        musicGateway.fetchNeteaseRecommendations(),
+      ]);
+
+      const newTracks: CanonicalTrack[] = [];
+      const newPlaylists: PlaylistItem[] = [];
+
+      if (hotDetail && hotDetail.tracks.length > 0) {
+        const favMarked = hotDetail.tracks.map((t, idx) => ({
+          ...t,
+          isFavorite: idx < 40,
+        }));
+        newTracks.push(...favMarked);
+        newPlaylists.push({
+          id: 'pl_ncm_3778678',
+          kind: 'imported',
+          source: 'netease',
+          name: `网易云 · ${hotDetail.name || '热歌榜'}`,
+          description:
+            hotDetail.description || '网易云音乐官方实时热歌榜（支持双语歌词与华为无损点亮）',
+          coverUrl: hotDetail.coverUrl,
+          trackCount: hotDetail.tracks.length,
+          updatedAt: '网易云实时热榜',
+          trackIds: hotDetail.tracks.map((t) => t.id),
+        });
+      }
+
+      if (soarDetail && soarDetail.tracks.length > 0) {
+        newTracks.push(...soarDetail.tracks);
+        newPlaylists.push({
+          id: 'pl_ncm_19723756',
+          kind: 'imported',
+          source: 'netease',
+          name: `网易云 · ${soarDetail.name || '飙升榜'}`,
+          description:
+            soarDetail.description || '网易云音乐官方实时飙升榜',
+          coverUrl: soarDetail.coverUrl,
+          trackCount: soarDetail.tracks.length,
+          updatedAt: '网易云实时飙升榜',
+          trackIds: soarDetail.tracks.map((t) => t.id),
+        });
+      }
+
+      for (const rec of recs.slice(0, 4)) {
+        if (!newPlaylists.some((p) => p.id === rec.id)) {
+          newPlaylists.push({
+            id: rec.id,
+            kind: 'imported',
+            source: 'netease',
+            name: rec.title,
+            description: rec.description || '来自网易云音乐推荐歌单',
+            coverUrl: rec.coverUrl,
+            trackCount: rec.trackCount,
+            updatedAt: '网易云推荐歌单',
+            trackIds: [],
+          });
+        }
+      }
+
+      set((state) => {
+        const trackMap = new Map(state.tracks.map((t) => [t.id, t]));
+        for (const trk of newTracks) {
+          if (!trackMap.has(trk.id)) {
+            trackMap.set(trk.id, trk);
+          }
+        }
+        const existingPlIds = new Set(state.playlists.map((p) => p.id));
+        const freshPlaylists = newPlaylists.filter(
+          (p) => !existingPlIds.has(p.id)
+        );
+        const mergedPlaylists = [...freshPlaylists, ...state.playlists];
+        const nextSelected =
+          state.activeSourceFilter === 'netease' && newPlaylists[0]
+            ? newPlaylists[0].id
+            : state.selectedPlaylistId;
+
+        return {
+          isSyncingNetease: false,
+          tracks: Array.from(trackMap.values()),
+          playlists: mergedPlaylists,
+          selectedPlaylistId: nextSelected,
+        };
+      });
+    } catch {
+      set({ isSyncingNetease: false });
+    }
+  },
+
   completeHuaweiReauth: (accountLabel) => {
     set((state) => ({
       isHuaweiAuthModalOpen: false,
@@ -915,6 +1339,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       sources: state.sources.map((s) => {
         if (s.id !== sourceId) return s;
         const nextLogged = !s.loggedIn;
+        if (!nextLogged && sourceId === 'netease') {
+          void musicGateway.logoutNeteaseSession();
+        }
         get().pushToast(
           nextLogged ? `${s.name} 已连接` : `${s.name} 已断开连接`,
           nextLogged

@@ -691,6 +691,151 @@ impl LibraryDb {
         Ok(())
     }
 
+    /// Persist a full NetEase Cloud Music sync (favorites + playlists) into the 23-table SQLite database.
+    pub fn persist_netease_sync(
+        &self,
+        uid: &str,
+        nickname: &str,
+        tracks: &[Value],
+        playlists: &[Value],
+        now_ms: i64,
+    ) -> SqlResult<()> {
+        let label = if nickname.trim().is_empty() {
+            format!("网易云 · {uid}")
+        } else {
+            format!("网易云 · {}", nickname.trim())
+        };
+        let acc_id = self.upsert_account("netease", uid, &label, "logged_in", now_ms)?;
+
+        for t in tracks {
+            let Some(cid) = t.get("sourceTrackId").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let title = t.get("title").and_then(|v| v.as_str()).unwrap_or("").trim();
+            if cid.is_empty() || title.is_empty() {
+                continue;
+            }
+            let artists: Vec<ArtistDto> = t
+                .get("artists")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|a| a.as_str())
+                        .map(|name| ArtistDto {
+                            id: String::new(),
+                            name: name.to_string(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let album_title = t
+                .get("album")
+                .and_then(|v| v.as_str())
+                .unwrap_or("网易云音乐");
+            let dur_secs = t
+                .get("durationSeconds")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(225);
+            let cover = t
+                .get("coverUrl")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            let input = SourceTrackInput {
+                source: "netease".into(),
+                source_track_id: cid.to_string(),
+                title: title.to_string(),
+                artists,
+                album: Some(AlbumDto {
+                    id: String::new(),
+                    title: album_title.to_string(),
+                }),
+                duration_ms: Some(dur_secs * 1000),
+                cover_url: cover,
+                access: "full".into(),
+                quality: "standard".into(),
+            };
+
+            if let Ok(canon_id) =
+                self.upsert_track_and_binding(&acc_id, "favorites", "netease:fav", &input, now_ms)
+            {
+                let _ = self.add_favorite(&canon_id, now_ms);
+            }
+        }
+
+        for p in playlists {
+            let Some(raw_pid) = p
+                .get("sourcePlaylistId")
+                .and_then(|v| v.as_str())
+                .or_else(|| p.get("id").and_then(|v| v.as_str()))
+            else {
+                continue;
+            };
+            let source_pid = raw_pid.strip_prefix("pl_ncm_").unwrap_or(raw_pid);
+            let name = p
+                .get("name")
+                .or_else(|| p.get("title"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("网易云歌单");
+            let desc = p
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("来自网易云音乐歌单");
+            let cover = p.get("coverUrl").and_then(|v| v.as_str()).unwrap_or("");
+            let track_count = p.get("trackCount").and_then(|v| v.as_i64()).unwrap_or(0);
+            let pl_id = format!("pl_ncm_{source_pid}");
+
+            self.conn.execute(
+                "INSERT INTO playlists(
+                    id, profile_id, kind, source, source_playlist_id, name, description,
+                    cover_url, track_count, revision, created_at, updated_at, last_synced_at
+                ) VALUES(?1, ?2, 'imported', 'netease', ?3, ?4, ?5, ?6, ?7, 1, ?8, ?8, ?8)
+                ON CONFLICT(id) DO UPDATE SET
+                  name = excluded.name,
+                  description = excluded.description,
+                  cover_url = excluded.cover_url,
+                  track_count = excluded.track_count,
+                  revision = playlists.revision + 1,
+                  updated_at = excluded.updated_at,
+                  last_synced_at = excluded.last_synced_at",
+                params![
+                    pl_id,
+                    DEFAULT_PROFILE,
+                    source_pid,
+                    name,
+                    desc,
+                    cover,
+                    track_count,
+                    now_ms
+                ],
+            )?;
+
+            if let Some(tids) = p.get("trackIds").and_then(|v| v.as_array()) {
+                for (pos, tid_val) in tids.iter().enumerate() {
+                    if let Some(raw_tid) = tid_val.as_str() {
+                        let cid = raw_tid.strip_prefix("ncm_").unwrap_or(raw_tid);
+                        let canon_id = self
+                            .conn
+                            .query_row(
+                                "SELECT home_track_id FROM source_identities WHERE source='netease' AND source_track_id=?1",
+                                params![cid],
+                                |r| r.get::<_, String>(0),
+                            )
+                            .unwrap_or_else(|_| raw_tid.to_string());
+                        let _ = self.conn.execute(
+                            "INSERT OR REPLACE INTO playlist_tracks(playlist_id, track_id, position, added_at)
+                             VALUES(?1, ?2, ?3, ?4)",
+                            params![pl_id, canon_id, pos as i64, now_ms],
+                        );
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Persist scanned local lossless/standard audio files into SQLite.
     pub fn persist_local_tracks(&self, tracks: &[SourceTrackInput], now_ms: i64) -> SqlResult<()> {
         let acc_id = self.upsert_account("local", "local_disk", "本地无损曲库", "logged_in", now_ms)?;
@@ -702,7 +847,11 @@ impl LibraryDb {
 
     /// Toggle favorite status in SQLite (`favorites` and `member_refs`).
     pub fn set_favorite(&self, raw_track_id: &str, is_favorite: bool, now_ms: i64) -> SqlResult<()> {
-        let cid = raw_track_id.strip_prefix("hw_").unwrap_or(raw_track_id);
+        let cid = raw_track_id
+            .strip_prefix("hw_")
+            .or_else(|| raw_track_id.strip_prefix("ncm_"))
+            .or_else(|| raw_track_id.strip_prefix("local_"))
+            .unwrap_or(raw_track_id);
         let canon_id = self
             .conn
             .query_row(
@@ -760,6 +909,8 @@ impl LibraryDb {
             let cid = tid
                 .strip_prefix("hw_track_")
                 .or_else(|| tid.strip_prefix("hw_"))
+                .or_else(|| tid.strip_prefix("ncm_"))
+                .or_else(|| tid.strip_prefix("local_"))
                 .unwrap_or(tid);
             let canon_id = self
                 .conn
@@ -839,9 +990,15 @@ impl LibraryDb {
 
             let mut bindings = Vec::new();
             let mut primary_hw_cid: Option<String> = None;
+            let mut primary_ncm_cid: Option<String> = None;
+            let mut primary_local_cid: Option<String> = None;
             for (src, sid, acc, qual) in brows.flatten() {
                 if src == "huawei" && primary_hw_cid.is_none() {
                     primary_hw_cid = Some(sid.clone());
+                } else if src == "netease" && primary_ncm_cid.is_none() {
+                    primary_ncm_cid = Some(sid.clone());
+                } else if src == "local" && primary_local_cid.is_none() {
+                    primary_local_cid = Some(sid.clone());
                 }
                 bindings.push(json!({
                     "source": src,
@@ -855,15 +1012,21 @@ impl LibraryDb {
                 continue;
             }
 
-            let frontend_id = primary_hw_cid
-                .as_ref()
-                .map(|cid| format!("hw_{cid}"))
-                .unwrap_or_else(|| canon_id.clone());
+            let (frontend_id, primary_sid, primary_source) = if let Some(ref cid) = primary_hw_cid {
+                (format!("hw_{cid}"), cid.clone(), "huawei")
+            } else if let Some(ref cid) = primary_ncm_cid {
+                (format!("ncm_{cid}"), cid.clone(), "netease")
+            } else if let Some(ref cid) = primary_local_cid {
+                (format!("local_{cid}"), cid.clone(), "local")
+            } else {
+                (canon_id.clone(), String::new(), "huawei")
+            };
 
             tracks_out.push(json!({
                 "id": frontend_id,
                 "canonicalId": canon_id,
-                "sourceTrackId": primary_hw_cid.unwrap_or_default(),
+                "source": primary_source,
+                "sourceTrackId": primary_sid,
                 "title": title,
                 "artists": if artists.is_empty() { vec!["未知艺人".to_string()] } else { artists },
                 "album": album_title,
@@ -897,16 +1060,26 @@ impl LibraryDb {
         let mut playlists_out = Vec::new();
         for (pid, kind, src, src_pid, name, desc, cover, tcount) in pl_rows.flatten() {
             let mut pt_stmt = self.conn.prepare(
-                "SELECT pt.track_id, si.source_track_id
+                "SELECT pt.track_id,
+                        si_hw.source_track_id,
+                        si_ncm.source_track_id
                  FROM playlist_tracks pt
-                 LEFT JOIN source_identities si ON si.home_track_id = pt.track_id AND si.source = 'huawei'
+                 LEFT JOIN source_identities si_hw ON si_hw.home_track_id = pt.track_id AND si_hw.source = 'huawei'
+                 LEFT JOIN source_identities si_ncm ON si_ncm.home_track_id = pt.track_id AND si_ncm.source = 'netease'
                  WHERE pt.playlist_id = ?1
                  ORDER BY pt.position ASC",
             )?;
             let pt_rows = pt_stmt.query_map(params![pid], |r| {
                 let tid: String = r.get(0)?;
                 let hw_sid: Option<String> = r.get(1)?;
-                Ok(hw_sid.map(|s| format!("hw_{s}")).unwrap_or(tid))
+                let ncm_sid: Option<String> = r.get(2)?;
+                if let Some(s) = hw_sid {
+                    Ok(format!("hw_{s}"))
+                } else if let Some(s) = ncm_sid {
+                    Ok(format!("ncm_{s}"))
+                } else {
+                    Ok(tid)
+                }
             })?;
             let tids: Vec<String> = pt_rows.flatten().collect();
 

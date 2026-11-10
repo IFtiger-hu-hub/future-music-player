@@ -145,6 +145,7 @@ export const FavoritesView: React.FC = () => {
   const setActiveNav = usePlayerStore((s) => s.setActiveNav);
   const triggerHuaweiSync = usePlayerStore((s) => s.triggerHuaweiSync);
   const setHuaweiAuthModalOpen = usePlayerStore((s) => s.setHuaweiAuthModalOpen);
+  const setNeteaseModalOpen = usePlayerStore((s) => s.setNeteaseModalOpen);
   const searchHuaweiCatalog = usePlayerStore((s) => s.searchHuaweiCatalog);
   const openCuratedPlaylist = usePlayerStore((s) => s.openCuratedPlaylist);
 
@@ -158,7 +159,11 @@ export const FavoritesView: React.FC = () => {
 
   useEffect(() => {
     let cancelled = false;
-    musicGateway.fetchHuaweiRecommendations('华语精选').then((list) => {
+    const loader =
+      activeSourceFilter === 'netease'
+        ? musicGateway.fetchNeteaseRecommendations()
+        : musicGateway.fetchHuaweiRecommendations('华语精选');
+    loader.then((list) => {
       if (!cancelled && list.length >= 5) {
         setRecommendedCards(list.slice(0, 5));
       }
@@ -166,33 +171,49 @@ export const FavoritesView: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [activeSourceFilter]);
 
   const refreshRecommendations = async () => {
     if (isRefreshingRecs) return;
     setIsRefreshingRecs(true);
     const nextIdx = (topicIdx + 1) % RECOMMENDATION_TOPICS.length;
     setTopicIdx(nextIdx);
-    const list = await musicGateway.fetchHuaweiRecommendations(
-      RECOMMENDATION_TOPICS[nextIdx]
-    );
+    const list =
+      activeSourceFilter === 'netease'
+        ? await musicGateway.fetchNeteaseRecommendations()
+        : await musicGateway.fetchHuaweiRecommendations(
+            RECOMMENDATION_TOPICS[nextIdx]
+          );
     if (list.length >= 5) {
       setRecommendedCards(list.slice(0, 5));
     }
     setIsRefreshingRecs(false);
   };
 
+  const hasRealNcmTracks = tracks.some((t) => t.id.startsWith('ncm_'));
+  const hasRealHwTracks = tracks.some((t) => t.id.startsWith('hw_'));
+
   const sourceFilteredTracks =
     activeSourceFilter === 'all'
       ? tracks
-      : tracks.filter((t) =>
-          t.bindings.some((b) => b.source === activeSourceFilter)
-        );
+      : activeSourceFilter === 'netease'
+        ? hasRealNcmTracks
+          ? tracks.filter((t) => t.id.startsWith('ncm_'))
+          : tracks.filter((t) => t.bindings.some((b) => b.source === 'netease'))
+        : activeSourceFilter === 'huawei'
+          ? hasRealHwTracks
+            ? tracks.filter((t) => t.id.startsWith('hw_'))
+            : tracks.filter((t) => t.bindings.some((b) => b.source === 'huawei'))
+          : tracks.filter((t) =>
+              t.bindings.some((b) => b.source === activeSourceFilter)
+            );
 
   const favoriteTracks = sourceFilteredTracks.filter((t) => t.isFavorite);
   const displayTracks =
     favoriteTracks.length > 0 ? favoriteTracks : sourceFilteredTracks;
   const huaweiSource = sources.find((s) => s.id === 'huawei')!;
+  const neteaseSource = sources.find((s) => s.id === 'netease')!;
+  const isNeteaseMode = activeSourceFilter === 'netease';
 
   const filteredTableTracks = artistFilter
     ? displayTracks.filter(
@@ -200,7 +221,7 @@ export const FavoritesView: React.FC = () => {
           t.artists.some((a) => a.includes(artistFilter)) ||
           t.title.includes(artistFilter)
       )
-    : favoriteTracks;
+    : displayTracks;
 
   const playRandomOrIndex = (idx: number) => {
     if (displayTracks.length === 0) return;
@@ -225,11 +246,15 @@ export const FavoritesView: React.FC = () => {
         <div
           onClick={() =>
             void openCuratedPlaylist({
-              id: 'pl_hero_listen_now',
-              sourcePlaylistId: 'N0dkEOhQ6HMFtiDAb',
-              name: '现在就听 · 华语流行神曲电台',
-              description:
-                '实时拉取华为音乐官方《华语流行神曲》歌单真实曲目，支持无损 FLAC 与逐字歌词',
+              id: isNeteaseMode ? 'pl_ncm_3778678' : 'pl_hero_listen_now',
+              sourcePlaylistId: isNeteaseMode ? '3778678' : 'N0dkEOhQ6HMFtiDAb',
+              kind: isNeteaseMode ? 'imported' : 'local',
+              name: isNeteaseMode
+                ? '现在就听 · 网易云热歌榜'
+                : '现在就听 · 华语流行神曲电台',
+              description: isNeteaseMode
+                ? '实时拉取网易云音乐官方《热歌榜》真实曲目，支持双语歌词与华为无损自动点亮'
+                : '实时拉取华为音乐官方《华语流行神曲》歌单真实曲目，支持无损 FLAC 与逐字歌词',
               coverUrl:
                 displayTracks[0]?.coverUrl ||
                 'https://contentcenter-drcn.dbankcdn.cn/img/pub_1/HW-Music_pgcsonglistcover_100_1/ec/v3/Xc6DsPobTyqPXJx__K65lg/732edf4c-b19d-49fd-814d-b7402d032543.jpg/music_pgcsonglistcover_500x500.webp',
@@ -245,10 +270,10 @@ export const FavoritesView: React.FC = () => {
           <div className="relative z-10 flex items-center justify-between !text-white/90 text-[11.5px] font-semibold">
             <span className="flex items-center gap-1.5">
               <Radio className="w-3.5 h-3.5 !text-white/90" />
-              <span>Music FM</span>
+              <span>{isNeteaseMode ? '网易云 FM' : 'Music FM'}</span>
             </span>
             <span className="text-[10.5px] !text-white/55 opacity-0 group-hover:opacity-100 transition-opacity">
-              查看 36 首真实曲目 ›
+              {isNeteaseMode ? '查看网易云热歌榜 ›' : '查看 36 首真实曲目 ›'}
             </span>
           </div>
 
@@ -290,7 +315,7 @@ export const FavoritesView: React.FC = () => {
           <div className="relative z-10 flex items-end justify-between gap-2">
             <div className="min-w-0">
               <div className="text-[17px] font-bold !text-white leading-tight">
-                现在就听
+                {isNeteaseMode ? '网易云热歌榜' : '现在就听'}
               </div>
               <div className="text-[11.5px] !text-white/70 truncate mt-0.5">
                 {displayTracks[0]
@@ -304,10 +329,17 @@ export const FavoritesView: React.FC = () => {
               onClick={(e) => {
                 e.stopPropagation();
                 void openCuratedPlaylist({
-                  id: 'pl_hero_listen_now',
-                  sourcePlaylistId: 'N0dkEOhQ6HMFtiDAb',
-                  name: '现在就听 · 华语流行神曲电台',
-                  description: '华为音乐官方《华语流行神曲》歌单真实曲目',
+                  id: isNeteaseMode ? 'pl_ncm_3778678' : 'pl_hero_listen_now',
+                  sourcePlaylistId: isNeteaseMode
+                    ? '3778678'
+                    : 'N0dkEOhQ6HMFtiDAb',
+                  kind: isNeteaseMode ? 'imported' : 'local',
+                  name: isNeteaseMode
+                    ? '现在就听 · 网易云热歌榜'
+                    : '现在就听 · 华语流行神曲电台',
+                  description: isNeteaseMode
+                    ? '网易云音乐官方《热歌榜》真实曲目'
+                    : '华为音乐官方《华语流行神曲》歌单真实曲目',
                   coverUrl:
                     displayTracks[0]?.coverUrl ||
                     'https://contentcenter-drcn.dbankcdn.cn/img/pub_1/HW-Music_pgcsonglistcover_100_1/ec/v3/Xc6DsPobTyqPXJx__K65lg/732edf4c-b19d-49fd-814d-b7402d032543.jpg/music_pgcsonglistcover_500x500.webp',
@@ -326,11 +358,17 @@ export const FavoritesView: React.FC = () => {
         <div
           onClick={() =>
             void openCuratedPlaylist({
-              id: 'pl_hero_daily_30',
-              sourcePlaylistId: 'u.Mese7_VQp0taJIdcK',
-              name: '每日 30 首 · 华语宝藏热歌每日一听',
-              description:
-                '实时同步华为音乐官方《宝藏热歌每日一听》真实曲库，每日更新无损金曲',
+              id: isNeteaseMode ? 'pl_ncm_19723756' : 'pl_hero_daily_30',
+              sourcePlaylistId: isNeteaseMode
+                ? '19723756'
+                : 'u.Mese7_VQp0taJIdcK',
+              kind: isNeteaseMode ? 'imported' : 'local',
+              name: isNeteaseMode
+                ? '每日 30 首 · 网易云飙升榜'
+                : '每日 30 首 · 华语宝藏热歌每日一听',
+              description: isNeteaseMode
+                ? '实时同步网易云音乐官方《飙升榜》真实曲库'
+                : '实时同步华为音乐官方《宝藏热歌每日一听》真实曲库，每日更新无损金曲',
               coverUrl:
                 'https://contentcenter-drcn.dbankcdn.cn/img/pub_1/HW-Music_pgcsonglistcover_100_1/3a/v3/n-3pdnO7TU6SAZM9QQfayg/30f7e79a-75e9-4dde-81e9-8a4040406cf6.jpg/music_pgcsonglistcover_500x500.webp',
               trackIds: [],
@@ -385,7 +423,7 @@ export const FavoritesView: React.FC = () => {
           <div className="relative z-10 flex items-end justify-between gap-2">
             <div className="min-w-0">
               <div className="text-[17px] font-bold !text-white leading-tight">
-                每日30首
+                {isNeteaseMode ? '网易云飙升榜' : '每日30首'}
               </div>
               <div className="text-[11.5px] !text-white/75 truncate mt-0.5">
                 {displayTracks[1]
@@ -399,10 +437,17 @@ export const FavoritesView: React.FC = () => {
               onClick={(e) => {
                 e.stopPropagation();
                 void openCuratedPlaylist({
-                  id: 'pl_hero_daily_30',
-                  sourcePlaylistId: 'u.Mese7_VQp0taJIdcK',
-                  name: '每日 30 首 · 华语宝藏热歌每日一听',
-                  description: '华为音乐官方《宝藏热歌每日一听》真实曲库',
+                  id: isNeteaseMode ? 'pl_ncm_19723756' : 'pl_hero_daily_30',
+                  sourcePlaylistId: isNeteaseMode
+                    ? '19723756'
+                    : 'u.Mese7_VQp0taJIdcK',
+                  kind: isNeteaseMode ? 'imported' : 'local',
+                  name: isNeteaseMode
+                    ? '每日 30 首 · 网易云飙升榜'
+                    : '每日 30 首 · 华语宝藏热歌每日一听',
+                  description: isNeteaseMode
+                    ? '网易云音乐官方《飙升榜》真实曲库'
+                    : '华为音乐官方《宝藏热歌每日一听》真实曲库',
                   coverUrl:
                     'https://contentcenter-drcn.dbankcdn.cn/img/pub_1/HW-Music_pgcsonglistcover_100_1/3a/v3/n-3pdnO7TU6SAZM9QQfayg/30f7e79a-75e9-4dde-81e9-8a4040406cf6.jpg/music_pgcsonglistcover_500x500.webp',
                   trackIds: [],
@@ -420,11 +465,15 @@ export const FavoritesView: React.FC = () => {
         <div
           onClick={() =>
             void openCuratedPlaylist({
-              id: 'pl_hero_new_releases',
-              sourcePlaylistId: 'O4PIWQ-1wQD9T9k-F',
-              name: '新歌推荐 · 华语流行新声',
-              description:
-                '实时拉取华为音乐官方《华语流行新声》首发歌单 37 首真实曲目',
+              id: isNeteaseMode ? 'pl_ncm_3779629' : 'pl_hero_new_releases',
+              sourcePlaylistId: isNeteaseMode ? '3779629' : 'O4PIWQ-1wQD9T9k-F',
+              kind: isNeteaseMode ? 'imported' : 'local',
+              name: isNeteaseMode
+                ? '新歌推荐 · 网易云新歌榜'
+                : '新歌推荐 · 华语流行新声',
+              description: isNeteaseMode
+                ? '实时拉取网易云音乐官方《新歌榜》首发真实曲目'
+                : '实时拉取华为音乐官方《华语流行新声》首发歌单 37 首真实曲目',
               coverUrl:
                 'https://contentcenter-drcn.dbankcdn.cn/img/pub_1/HW-Music_pgcsonglistcover_100_1/fe/v3/UxWSW8twQ9iswdT47gEwmg/b8bc9588-31fc-4324-a61a-3eff11c70c12.jpg/music_pgcsonglistcover_500x500.webp',
               trackIds: [],
@@ -442,7 +491,7 @@ export const FavoritesView: React.FC = () => {
               <span>NEW</span>
             </span>
             <span className="text-[10.5px] font-semibold !text-white/60 opacity-0 group-hover:opacity-100 transition-opacity">
-              查看 37 首新歌 ›
+              {isNeteaseMode ? '查看网易云新歌榜 ›' : '查看 37 首新歌 ›'}
             </span>
           </div>
 
@@ -468,7 +517,7 @@ export const FavoritesView: React.FC = () => {
           <div className="relative z-10 flex items-end justify-between gap-2">
             <div className="min-w-0">
               <div className="text-[17px] font-bold !text-white leading-tight">
-                新歌推荐
+                {isNeteaseMode ? '网易云新歌榜' : '新歌推荐'}
               </div>
               <div className="text-[11.5px] !text-white/75 truncate mt-0.5">
                 {displayTracks[2]
@@ -482,10 +531,19 @@ export const FavoritesView: React.FC = () => {
               onClick={(e) => {
                 e.stopPropagation();
                 void openCuratedPlaylist({
-                  id: 'pl_hero_new_releases',
-                  sourcePlaylistId: 'O4PIWQ-1wQD9T9k-F',
-                  name: '新歌推荐 · 华语流行新声',
-                  description: '华为音乐官方《华语流行新声》首发歌单真实曲目',
+                  id: isNeteaseMode
+                    ? 'pl_ncm_3779629'
+                    : 'pl_hero_new_releases',
+                  sourcePlaylistId: isNeteaseMode
+                    ? '3779629'
+                    : 'O4PIWQ-1wQD9T9k-F',
+                  kind: isNeteaseMode ? 'imported' : 'local',
+                  name: isNeteaseMode
+                    ? '新歌推荐 · 网易云新歌榜'
+                    : '新歌推荐 · 华语流行新声',
+                  description: isNeteaseMode
+                    ? '网易云音乐官方《新歌榜》首发真实曲目'
+                    : '华为音乐官方《华语流行新声》首发歌单真实曲目',
                   coverUrl:
                     'https://contentcenter-drcn.dbankcdn.cn/img/pub_1/HW-Music_pgcsonglistcover_100_1/fe/v3/UxWSW8twQ9iswdT47gEwmg/b8bc9588-31fc-4324-a61a-3eff11c70c12.jpg/music_pgcsonglistcover_500x500.webp',
                   trackIds: [],
@@ -503,11 +561,19 @@ export const FavoritesView: React.FC = () => {
         <div
           onClick={() =>
             void openCuratedPlaylist({
-              id: 'pl_hero_heartbeat_radar',
-              sourcePlaylistId: 'u.M_uZkeuvWMKgF2oyJ',
-              name: '心动模式 · 治愈华语心动雷达',
-              description:
-                '实时拉取华为音乐《治愈华语 | 时光清浅，感恩遇见》40 首真实高共鸣金曲',
+              id: isNeteaseMode
+                ? 'pl_ncm_2884035'
+                : 'pl_hero_heartbeat_radar',
+              sourcePlaylistId: isNeteaseMode
+                ? '2884035'
+                : 'u.M_uZkeuvWMKgF2oyJ',
+              kind: isNeteaseMode ? 'imported' : 'local',
+              name: isNeteaseMode
+                ? '心动模式 · 网易云原创榜'
+                : '心动模式 · 治愈华语心动雷达',
+              description: isNeteaseMode
+                ? '实时拉取网易云音乐官方《原创榜》真实高共鸣金曲'
+                : '实时拉取华为音乐《治愈华语 | 时光清浅，感恩遇见》40 首真实高共鸣金曲',
               coverUrl:
                 'https://music-pics-drcn.dbankcdn.cn/image/11/3f/D953BC2059A798D535B2952CE704AC58_middleImage.jpg',
               trackIds: [],
@@ -529,10 +595,10 @@ export const FavoritesView: React.FC = () => {
           <div className="relative z-10 flex items-center justify-between !text-white/90 text-[11.5px] font-semibold">
             <span className="flex items-center gap-1.5">
               <Radio className="w-3.5 h-3.5 !text-white/90" />
-              <span>Hi-Res 心动雷达</span>
+              <span>{isNeteaseMode ? '网易云原创雷达' : 'Hi-Res 心动雷达'}</span>
             </span>
             <span className="text-[10.5px] !text-white/65 opacity-0 group-hover:opacity-100 transition-opacity">
-              查看 40 首真实曲目 ›
+              {isNeteaseMode ? '查看网易云原创榜 ›' : '查看 40 首真实曲目 ›'}
             </span>
           </div>
 
@@ -541,7 +607,7 @@ export const FavoritesView: React.FC = () => {
           <div className="relative z-10 flex items-end justify-between gap-2">
             <div className="min-w-0">
               <div className="text-[17px] font-bold !text-white leading-tight">
-                心动模式
+                {isNeteaseMode ? '网易云原创榜' : '心动模式'}
               </div>
               <div className="text-[11.5px] !text-white/75 truncate mt-0.5">
                 {displayTracks[3]
@@ -555,11 +621,19 @@ export const FavoritesView: React.FC = () => {
               onClick={(e) => {
                 e.stopPropagation();
                 void openCuratedPlaylist({
-                  id: 'pl_hero_heartbeat_radar',
-                  sourcePlaylistId: 'u.M_uZkeuvWMKgF2oyJ',
-                  name: '心动模式 · 治愈华语心动雷达',
-                  description:
-                    '华为音乐《治愈华语 | 时光清浅，感恩遇见》真实曲库',
+                  id: isNeteaseMode
+                    ? 'pl_ncm_2884035'
+                    : 'pl_hero_heartbeat_radar',
+                  sourcePlaylistId: isNeteaseMode
+                    ? '2884035'
+                    : 'u.M_uZkeuvWMKgF2oyJ',
+                  kind: isNeteaseMode ? 'imported' : 'local',
+                  name: isNeteaseMode
+                    ? '心动模式 · 网易云原创榜'
+                    : '心动模式 · 治愈华语心动雷达',
+                  description: isNeteaseMode
+                    ? '网易云音乐官方《原创榜》真实曲库'
+                    : '华为音乐《治愈华语 | 时光清浅，感恩遇见》真实曲库',
                   coverUrl:
                     'https://music-pics-drcn.dbankcdn.cn/image/11/3f/D953BC2059A798D535B2952CE704AC58_middleImage.jpg',
                   trackIds: [],
@@ -701,17 +775,37 @@ export const FavoritesView: React.FC = () => {
               onClick={() => void refreshRecommendations()}
               disabled={isRefreshingRecs}
               className="h-8.5 px-3.5 rounded-full btn-harmony-secondary text-[12px] font-semibold flex items-center gap-1.5 cursor-pointer"
-              title="从华为音乐云端换一批真实推荐歌单"
+              title={
+                isNeteaseMode
+                  ? '从网易云音乐换一批真实推荐歌单'
+                  : '从华为音乐云端换一批真实推荐歌单'
+              }
             >
               <RefreshCw
                 className={`w-3.5 h-3.5 text-white/65 ${
                   isRefreshingRecs ? 'animate-spin' : ''
                 }`}
               />
-              <span>换一批推荐 ({RECOMMENDATION_TOPICS[topicIdx]})</span>
+              <span>
+                {isNeteaseMode
+                  ? '换一批网易云推荐'
+                  : `换一批推荐 (${RECOMMENDATION_TOPICS[topicIdx]})`}
+              </span>
             </button>
 
-            {huaweiSource.loggedIn ? (
+            {isNeteaseMode ? (
+              <button
+                onClick={() => setNeteaseModalOpen(true)}
+                className="h-8.5 px-4 rounded-full btn-harmony-primary text-[12px] font-semibold flex items-center gap-1.5 cursor-pointer"
+              >
+                <QrCode className="w-3.5 h-3.5 !text-white" />
+                <span>
+                  {neteaseSource.accountName.startsWith('网易云 ·')
+                    ? `已连 ${neteaseSource.accountName.replace('网易云 · ', '')}`
+                    : '扫码 / 昵称同步网易云'}
+                </span>
+              </button>
+            ) : huaweiSource.loggedIn ? (
               <button
                 onClick={triggerHuaweiSync}
                 className="h-8.5 px-4 rounded-full btn-harmony-secondary text-[12px] font-semibold flex items-center gap-1.5 cursor-pointer"
@@ -739,8 +833,11 @@ export const FavoritesView: React.FC = () => {
                 void openCuratedPlaylist({
                   id: card.id,
                   sourcePlaylistId: card.sourcePlaylistId,
+                  kind: card.id.startsWith('pl_ncm_') ? 'imported' : 'local',
                   name: card.title,
-                  description: `${card.description} · 华为音乐播放 ${card.playCount}`,
+                  description: `${card.description} · ${
+                    card.id.startsWith('pl_ncm_') ? '网易云音乐' : '华为音乐'
+                  }播放 ${card.playCount}`,
                   coverUrl: card.coverUrl,
                   trackIds: [],
                 })
@@ -762,7 +859,7 @@ export const FavoritesView: React.FC = () => {
                   <span>{card.playCount}</span>
                 </div>
 
-                {/* Bottom-Right Quick Play FAB (Fetches real Huawei playlist songs & plays immediately) */}
+                {/* Bottom-Right Quick Play FAB */}
                 <button
                   type="button"
                   title="直接播放此真实歌单"
@@ -772,8 +869,11 @@ export const FavoritesView: React.FC = () => {
                     void openCuratedPlaylist({
                       id: card.id,
                       sourcePlaylistId: card.sourcePlaylistId,
+                      kind: card.id.startsWith('pl_ncm_') ? 'imported' : 'local',
                       name: card.title,
-                      description: `${card.description} · 华为音乐播放 ${card.playCount}`,
+                      description: `${card.description} · ${
+                        card.id.startsWith('pl_ncm_') ? '网易云音乐' : '华为音乐'
+                      }播放 ${card.playCount}`,
                       coverUrl: card.coverUrl,
                       trackIds: [],
                       autoPlayFirst: true,
@@ -792,15 +892,19 @@ export const FavoritesView: React.FC = () => {
         </div>
       </div>
 
-      {/* Row 4: 新歌精选 · 我喜欢的跨源无损曲库 (Wrapped in HarmonyOS White Elevated Card) */}
+      {/* Row 4: 新歌精选 · 我喜欢的跨源无损曲库 */}
       <div className="p-5 rounded-[24px] surface-bento space-y-3">
         <div className="flex items-center justify-between px-1">
           <div className="flex items-baseline gap-2.5">
             <h2 className="text-[18px] font-bold text-white tracking-tight">
-              {artistFilter ? `${artistFilter} · 精选曲目` : '新歌精选 · 我喜欢'}
+              {artistFilter
+                ? `${artistFilter} · 精选曲目`
+                : isNeteaseMode
+                  ? '网易云音乐 · 热歌与红心曲库'
+                  : '新歌精选 · 我喜欢'}
             </h2>
             <span className="text-[12px] text-white/45">
-              共 {filteredTableTracks.length} 首无损与跨源收藏曲目
+              共 {filteredTableTracks.length} 首曲目
             </span>
           </div>
           <button
