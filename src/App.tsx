@@ -10,6 +10,7 @@ import { DesktopLyricOverlay } from './components/DesktopLyricOverlay';
 import {
   HuaweiAuthModal,
   NeteaseConnectModal,
+  WebdavConnectModal,
   ImportAssetsModal,
   CommandPaletteModal,
 } from './components/Modals';
@@ -117,6 +118,28 @@ export function App() {
       // Pre-warm NetEase official charts & playlists if none are persisted yet
       void usePlayerStore.getState().ensureNeteaseContentLoaded();
     });
+    musicGateway.fetchWebdavStatus().then((dav) => {
+      if (dav?.loggedIn && dav.endpoint) {
+        let shortHost = dav.endpoint;
+        try {
+          shortHost = new URL(dav.endpoint).host;
+        } catch {
+          // keep raw
+        }
+        usePlayerStore.setState((state) => ({
+          sources: state.sources.map((s) =>
+            s.id === 'webdav'
+              ? {
+                  ...s,
+                  loggedIn: true,
+                  accountName: `WebDAV · ${shortHost} (${dav.username || '匿名'})`,
+                  syncStatus: 'updated',
+                }
+              : s
+          ),
+        }));
+      }
+    });
   }, [completeHuaweiReauth, triggerHuaweiSync]);
 
   // Global keyboard shortcuts (Ctrl+K Command Palette, Space Play/Pause, Esc Close Stage)
@@ -184,6 +207,7 @@ export function App() {
       <div className="theme-main-area">
         <HuaweiAuthModal />
         <NeteaseConnectModal />
+        <WebdavConnectModal />
         <ImportAssetsModal />
         <CommandPaletteModal />
       </div>

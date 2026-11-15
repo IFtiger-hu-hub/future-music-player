@@ -32,6 +32,7 @@ const SOURCE_LABELS: Record<SourceId, string> = {
   huawei: '华为音乐',
   local: '本地母带',
   netease: '网易云',
+  webdav: 'WebDAV 云盘',
 };
 
 export type StageLayoutMode = 'combo' | 'vinyl' | 'lyrics';
@@ -618,13 +619,13 @@ const NeteaseVinylTurntable: React.FC<{
 
     const sizeClass =
       variant === 'vinyl'
-        ? 'w-[300px] h-[300px] sm:w-[370px] sm:h-[370px] xl:w-[420px] xl:h-[420px]'
-        : 'w-[320px] h-[320px] xl:w-[376px] xl:h-[376px] 2xl:w-[410px] 2xl:h-[410px]';
+        ? 'w-[340px] h-[340px] sm:w-[410px] sm:h-[410px] lg:w-[460px] lg:h-[460px] xl:w-[496px] xl:h-[496px] 2xl:w-[530px] 2xl:h-[530px]'
+        : 'w-[340px] h-[340px] xl:w-[410px] xl:h-[410px] 2xl:w-[450px] 2xl:h-[450px]';
 
     const ringPaddingClass =
       variant === 'vinyl'
-        ? 'p-[52px] sm:p-[66px] xl:p-[74px]'
-        : 'p-[50px] xl:p-[60px]';
+        ? 'p-[56px] sm:p-[68px] lg:p-[76px] xl:p-[82px] 2xl:p-[88px]'
+        : 'p-[54px] xl:p-[66px] 2xl:p-[72px]';
 
     const renderDiscPlatter = (
       discTrack: CanonicalTrack,
@@ -633,11 +634,12 @@ const NeteaseVinylTurntable: React.FC<{
       <div
         style={{
           willChange: 'transform',
+          animation: 'vinylSlowSpin 34s linear infinite',
           animationPlayState: spinActive ? 'running' : 'paused',
           background:
             'conic-gradient(from 35deg, #101014 0deg, #26262F 45deg, #101014 95deg, #1F1F27 180deg, #292933 225deg, #101014 280deg, #1B1B22 360deg)',
         }}
-        className={`w-full h-full rounded-full ${ringPaddingClass} shadow-[0_28px_75px_rgba(0,0,0,0.78)] ring-1 ring-white/15 relative flex items-center justify-center animate-[spin_26s_linear_infinite]`}
+        className={`w-full h-full rounded-full ${ringPaddingClass} shadow-[0_32px_88px_rgba(0,0,0,0.82)] ring-1 ring-white/15 relative flex items-center justify-center`}
       >
         <div className="absolute inset-4 rounded-full border border-white/[0.06] pointer-events-none" />
         <div className="absolute inset-9 rounded-full border border-white/[0.05] pointer-events-none" />
@@ -651,7 +653,7 @@ const NeteaseVinylTurntable: React.FC<{
             decoding="async"
             className="w-full h-full object-cover select-none pointer-events-none"
           />
-          <div className="absolute inset-0 m-auto w-4.5 h-4.5 rounded-full bg-[#0A0A0E] border border-white/35 shadow-md" />
+          <div className="absolute inset-0 m-auto w-5 h-5 rounded-full bg-[#0A0A0E] border border-white/35 shadow-md" />
         </div>
       </div>
     );
@@ -711,8 +713,10 @@ const NeteaseVinylTurntable: React.FC<{
             transform: isTonearmDown ? 'rotate(2deg)' : 'rotate(-26deg)',
             transition: 'transform 460ms cubic-bezier(0.22, 1, 0.36, 1)',
           }}
-          className={`absolute -top-5 right-2 z-30 ${
-            variant === 'vinyl' ? 'w-32 h-44' : 'w-28 h-40'
+          className={`absolute -top-6 right-2 z-30 ${
+            variant === 'vinyl'
+              ? 'w-36 h-48 xl:w-40 xl:h-54'
+              : 'w-32 h-44 xl:w-36 xl:h-48'
           } pointer-events-none`}
         >
           <div className="absolute top-2 right-3 w-8.5 h-8.5 rounded-full bg-white/20 border border-white/30 shadow-lg flex items-center justify-center">
@@ -1004,6 +1008,10 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
       className="relative w-full h-full flex flex-col justify-between overflow-hidden"
     >
       <style>{`
+        @keyframes vinylSlowSpin {
+          0%   { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
         @keyframes subtleGlowDrift {
           0%   { transform: translate3d(-18%, -12%, 0) scale(1); }
           50%  { transform: translate3d(22%, 14%, 0) scale(1.18); }
@@ -1456,9 +1464,11 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
                 <img
                   src={currentTrack.coverUrl}
                   alt={currentTrack.title}
-                  className={`w-10 h-10 rounded-full object-cover ring-1 ring-white/25 shrink-0 shadow-md ${
-                    isPlaying ? 'animate-[spin_24s_linear_infinite]' : ''
-                  }`}
+                  style={{
+                    animation: 'vinylSlowSpin 34s linear infinite',
+                    animationPlayState: isPlaying ? 'running' : 'paused',
+                  }}
+                  className="w-10 h-10 rounded-full object-cover ring-1 ring-white/25 shrink-0 shadow-md"
                 />
                 <div className="min-w-0 flex-1">
                   <div className="text-[14px] font-bold !text-white truncate">

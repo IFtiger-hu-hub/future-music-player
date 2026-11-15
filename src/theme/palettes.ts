@@ -1,7 +1,7 @@
 import { EqualizerBand, ThemeId, ThemePalette } from '../types/music';
 
 export const THEME_PALETTES: ThemePalette[] = [
-  // 6 Light Themes (aligned with tinglan theme.go)
+  // 6 Light Themes (HarmonyOS NEXT light themes)
   {
     id: 'light',
     label: '晨光',
@@ -74,7 +74,7 @@ export const THEME_PALETTES: ThemePalette[] = [
     accent: '#13827B',
     dark: false,
   },
-  // 7 Dark Themes (Apple Crimson Dark + tinglan dark themes)
+  // 7 Dark Themes (Apple Crimson Dark + HarmonyOS NEXT dark themes)
   {
     id: 'apple_dark',
     label: '绯红暗夜',

@@ -26,6 +26,7 @@ const SOURCE_LABELS: Record<SourceId, { name: string; short: string }> = {
   huawei: { name: '华为音乐', short: '华为' },
   local: { name: '本地音频', short: '本地' },
   netease: { name: '网易云', short: '网易' },
+  webdav: { name: 'WebDAV 云盘', short: 'WebDAV' },
 };
 
 const HARMONY_BOTTOM_TABS: Array<{

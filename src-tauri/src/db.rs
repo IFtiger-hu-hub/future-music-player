@@ -71,11 +71,71 @@ impl LibraryDb {
         Self::init(conn)
     }
 
+    pub fn user_home_dir() -> PathBuf {
+        if let Ok(home) = std::env::var("HOME") {
+            if !home.trim().is_empty() {
+                return PathBuf::from(home);
+            }
+        }
+        if let Ok(profile) = std::env::var("USERPROFILE") {
+            if !profile.trim().is_empty() {
+                return PathBuf::from(profile);
+            }
+        }
+        if let (Ok(drive), Ok(path)) = (std::env::var("HOMEDRIVE"), std::env::var("HOMEPATH")) {
+            let combined = format!("{}{}", drive, path);
+            if !combined.trim().is_empty() {
+                return PathBuf::from(combined);
+            }
+        }
+        std::env::temp_dir()
+    }
+
+    pub fn app_config_dir() -> PathBuf {
+        let home = Self::user_home_dir();
+        let dot_config = home.join(".config").join("future-music");
+        #[cfg(target_os = "windows")]
+        {
+            if dot_config.exists() {
+                return dot_config;
+            }
+            if let Ok(appdata) = std::env::var("APPDATA") {
+                if !appdata.trim().is_empty() {
+                    return PathBuf::from(appdata).join("future-music");
+                }
+            }
+            return home.join("AppData").join("Roaming").join("future-music");
+        }
+        #[cfg(target_os = "macos")]
+        {
+            if dot_config.exists() {
+                return dot_config;
+            }
+            let mac_support = home
+                .join("Library")
+                .join("Application Support")
+                .join("future-music");
+            if mac_support.exists() {
+                return mac_support;
+            }
+            return dot_config;
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        {
+            if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+                if !xdg.trim().is_empty() {
+                    let xdg_dir = PathBuf::from(xdg).join("future-music");
+                    if xdg_dir.exists() || !dot_config.exists() {
+                        return xdg_dir;
+                    }
+                }
+            }
+            dot_config
+        }
+    }
+
     pub fn default_db_path() -> PathBuf {
-        let home = std::env::var("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("/tmp"));
-        home.join(".config").join("future-music").join("library.db")
+        Self::app_config_dir().join("library.db")
     }
 
     pub fn open_default() -> SqlResult<Self> {
@@ -845,12 +905,67 @@ impl LibraryDb {
         Ok(())
     }
 
+    /// Persist scanned WebDAV audio tracks and their playlist into SQLite.
+    pub fn persist_webdav_tracks(
+        &self,
+        endpoint: &str,
+        tracks: &[SourceTrackInput],
+        now_ms: i64,
+    ) -> SqlResult<()> {
+        let acc_id = self.upsert_account(
+            "webdav",
+            endpoint,
+            &format!("WebDAV · {endpoint}"),
+            "logged_in",
+            now_ms,
+        )?;
+        let pl_id = "pl_webdav_root";
+        self.conn.execute(
+            "INSERT INTO playlists(
+                id, profile_id, kind, source, source_playlist_id, name, description,
+                cover_url, track_count, revision, created_at, updated_at, last_synced_at
+            ) VALUES(?1, ?2, 'imported', 'webdav', ?3, 'WebDAV · 云盘无损曲库', ?4, '', ?5, 1, ?6, ?6, ?6)
+            ON CONFLICT(id) DO UPDATE SET
+              description = excluded.description,
+              track_count = excluded.track_count,
+              revision = playlists.revision + 1,
+              updated_at = excluded.updated_at,
+              last_synced_at = excluded.last_synced_at",
+            params![
+                pl_id,
+                DEFAULT_PROFILE,
+                endpoint,
+                format!("来自 WebDAV 挂载源 ({endpoint}) 的无损音频"),
+                tracks.len() as i64,
+                now_ms
+            ],
+        )?;
+        self.conn.execute(
+            "DELETE FROM playlist_tracks WHERE playlist_id = ?1",
+            params![pl_id],
+        )?;
+        for (pos, t) in tracks.iter().enumerate() {
+            if let Ok(canon_id) =
+                self.upsert_track_and_binding(&acc_id, "webdav", "webdav:root", t, now_ms)
+            {
+                let _ = self.add_favorite(&canon_id, now_ms);
+                let _ = self.conn.execute(
+                    "INSERT OR REPLACE INTO playlist_tracks(playlist_id, track_id, position, added_at)
+                     VALUES(?1, ?2, ?3, ?4)",
+                    params![pl_id, canon_id, pos as i64, now_ms],
+                );
+            }
+        }
+        Ok(())
+    }
+
     /// Toggle favorite status in SQLite (`favorites` and `member_refs`).
     pub fn set_favorite(&self, raw_track_id: &str, is_favorite: bool, now_ms: i64) -> SqlResult<()> {
         let cid = raw_track_id
             .strip_prefix("hw_")
             .or_else(|| raw_track_id.strip_prefix("ncm_"))
             .or_else(|| raw_track_id.strip_prefix("local_"))
+            .or_else(|| raw_track_id.strip_prefix("webdav_"))
             .unwrap_or(raw_track_id);
         let canon_id = self
             .conn
@@ -992,6 +1107,7 @@ impl LibraryDb {
             let mut primary_hw_cid: Option<String> = None;
             let mut primary_ncm_cid: Option<String> = None;
             let mut primary_local_cid: Option<String> = None;
+            let mut primary_webdav_cid: Option<String> = None;
             for (src, sid, acc, qual) in brows.flatten() {
                 if src == "huawei" && primary_hw_cid.is_none() {
                     primary_hw_cid = Some(sid.clone());
@@ -999,13 +1115,21 @@ impl LibraryDb {
                     primary_ncm_cid = Some(sid.clone());
                 } else if src == "local" && primary_local_cid.is_none() {
                     primary_local_cid = Some(sid.clone());
+                } else if src == "webdav" && primary_webdav_cid.is_none() {
+                    primary_webdav_cid = Some(sid.clone());
                 }
                 bindings.push(json!({
                     "source": src,
                     "sourceTrackId": sid,
                     "access": acc,
                     "quality": qual,
-                    "formatLabel": if qual == "lossless" || qual == "hires" { "SQ 无损" } else { "320k MP3" }
+                    "formatLabel": if src == "webdav" {
+                        if qual == "lossless" || qual == "hires" { "WebDAV 无损" } else { "WebDAV 音频" }
+                    } else if qual == "lossless" || qual == "hires" {
+                        "SQ 无损"
+                    } else {
+                        "320k MP3"
+                    }
                 }));
             }
             if bindings.is_empty() {
@@ -1016,6 +1140,8 @@ impl LibraryDb {
                 (format!("hw_{cid}"), cid.clone(), "huawei")
             } else if let Some(ref cid) = primary_ncm_cid {
                 (format!("ncm_{cid}"), cid.clone(), "netease")
+            } else if let Some(ref cid) = primary_webdav_cid {
+                (format!("webdav_{canon_id}"), cid.clone(), "webdav")
             } else if let Some(ref cid) = primary_local_cid {
                 (format!("local_{cid}"), cid.clone(), "local")
             } else {
@@ -1062,10 +1188,12 @@ impl LibraryDb {
             let mut pt_stmt = self.conn.prepare(
                 "SELECT pt.track_id,
                         si_hw.source_track_id,
-                        si_ncm.source_track_id
+                        si_ncm.source_track_id,
+                        si_dav.source_track_id
                  FROM playlist_tracks pt
                  LEFT JOIN source_identities si_hw ON si_hw.home_track_id = pt.track_id AND si_hw.source = 'huawei'
                  LEFT JOIN source_identities si_ncm ON si_ncm.home_track_id = pt.track_id AND si_ncm.source = 'netease'
+                 LEFT JOIN source_identities si_dav ON si_dav.home_track_id = pt.track_id AND si_dav.source = 'webdav'
                  WHERE pt.playlist_id = ?1
                  ORDER BY pt.position ASC",
             )?;
@@ -1073,10 +1201,13 @@ impl LibraryDb {
                 let tid: String = r.get(0)?;
                 let hw_sid: Option<String> = r.get(1)?;
                 let ncm_sid: Option<String> = r.get(2)?;
+                let dav_sid: Option<String> = r.get(3)?;
                 if let Some(s) = hw_sid {
                     Ok(format!("hw_{s}"))
                 } else if let Some(s) = ncm_sid {
                     Ok(format!("ncm_{s}"))
+                } else if dav_sid.is_some() {
+                    Ok(format!("webdav_{tid}"))
                 } else {
                     Ok(tid)
                 }

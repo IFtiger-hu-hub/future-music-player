@@ -759,14 +759,14 @@ export const FavoritesView: React.FC = () => {
         </div>
       )}
 
-      {/* Row 3: Hi Raven, 为你推荐 (5-Column Square Artwork Grid -> Click Cover to Open Playlist Detail) */}
+      {/* Row 3: 为你推荐 (5-Column Square Artwork Grid -> Click Cover to Open Playlist Detail) */}
       <div className="space-y-3.5 select-none">
         <div className="flex items-center justify-between">
           <button
             onClick={() => setActiveNav('local_playlists')}
             className="flex items-center gap-1 text-[18px] font-bold text-white tracking-tight cursor-pointer group"
           >
-            <span>Hi Raven, 为你推荐</span>
+            <span>为你推荐</span>
             <ChevronRight className="w-4 h-4 text-white/45 group-hover:translate-x-0.5 transition-transform" />
           </button>
 

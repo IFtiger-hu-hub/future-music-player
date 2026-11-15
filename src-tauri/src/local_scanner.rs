@@ -44,7 +44,8 @@ pub fn parse_local_audio_file(path: &Path) -> Result<SourceTrackInput, String> {
     if !is_supported_audio_file(path) {
         return Err("unsupported audio extension".into());
     }
-    let fingerprint = compute_audio_fingerprint(path)?;
+    let _fingerprint = compute_audio_fingerprint(path)?;
+    let source_path_id = path.to_string_lossy().to_string();
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
@@ -78,7 +79,7 @@ pub fn parse_local_audio_file(path: &Path) -> Result<SourceTrackInput, String> {
             if let Some(t) = title {
                 return Ok(SourceTrackInput {
                     source: "local".into(),
-                    source_track_id: fingerprint,
+                    source_track_id: source_path_id,
                     title: t,
                     artists: vec![ArtistDto {
                         id: String::new(),
@@ -111,7 +112,7 @@ pub fn parse_local_audio_file(path: &Path) -> Result<SourceTrackInput, String> {
 
     Ok(SourceTrackInput {
         source: "local".into(),
-        source_track_id: fingerprint,
+        source_track_id: source_path_id,
         title: title_name,
         artists: vec![ArtistDto {
             id: String::new(),

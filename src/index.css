@@ -590,3 +590,21 @@ html.desktop-lyric-window #root {
   background-color: transparent !important;
   overflow: hidden !important;
 }
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes vinylSlowSpin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}

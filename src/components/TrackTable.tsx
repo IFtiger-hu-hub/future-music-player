@@ -7,6 +7,7 @@ const SOURCE_LABELS: Record<SourceId, string> = {
   huawei: '华为',
   local: '本地',
   netease: '网易',
+  webdav: '云盘',
 };
 
 const PAGE_SIZE = 32;

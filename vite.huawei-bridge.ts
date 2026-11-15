@@ -34,8 +34,11 @@ export interface ParsedLyricLine {
   words?: ParsedLyricWord[];
 }
 
-const SESSION_FILE = path.resolve(process.cwd(), '.local/huawei-session.json');
-const TINGLAN_CONFIG_DIR = path.join(os.homedir(), '.config/tinglan/native-v1');
+const SESSION_FILE = path.join(
+  process.env.APPDATA || path.join(os.homedir(), '.config'),
+  'future-music',
+  'huawei-session.json'
+);
 
 function randomUrlSafe(bytes = 32): string {
   return crypto.randomBytes(bytes).toString('base64url');
@@ -71,10 +74,7 @@ export function isSafeHuaweiResourceUrl(raw: string): boolean {
 }
 
 /**
- * Attempts to load a valid Huawei Music session from:
- * 1. `.local/huawei-session.json` in workspace
- * 2. `~/.config/tinglan/native-v1/secrets.local.json` (AES-256-GCM encrypted plugin vault)
- * 3. `~/.config/tinglan/native-v1/session.local.json` (AES-256-GCM encrypted host vault)
+ * Attempts to load a valid Huawei Music session from the user's local Future Music config directory.
  */
 function loadPersistedSession(): StoredHuaweiSession | null {
   try {
@@ -85,81 +85,6 @@ function loadPersistedSession(): StoredHuaweiSession | null {
   } catch {
     // ignore
   }
-
-  // Fallback 1: Decrypt from ~/.config/tinglan/native-v1/secrets.local.json
-  try {
-    const secretsPath = path.join(TINGLAN_CONFIG_DIR, 'secrets.local.json');
-    if (fs.existsSync(secretsPath)) {
-      const raw = JSON.parse(fs.readFileSync(secretsPath, 'utf-8'));
-      const b64Blob = raw?.data?.['plugin.session.huawei'];
-      if (raw?.version === 1 && raw?.key && b64Blob) {
-        const key = Buffer.from(raw.key, 'base64');
-        const blob = Buffer.from(b64Blob, 'base64');
-        const nonce = blob.subarray(0, 12);
-        const tag = blob.subarray(blob.length - 16);
-        const ct = blob.subarray(12, blob.length - 16);
-        const decipher = crypto.createDecipheriv('aes-256-gcm', key, nonce);
-        decipher.setAuthTag(tag);
-        decipher.setAAD(Buffer.from('hwmusic-viva-secret-v1:plugin.session.huawei'));
-        const plain = Buffer.concat([decipher.update(ct), decipher.final()]).toString('utf-8');
-        const doc = JSON.parse(plain);
-        const entries = Object.values(doc?.entries || {}) as Array<{ value?: string }>;
-        for (const entry of entries) {
-          if (!entry?.value) continue;
-          let decodedStr = entry.value;
-          if (!decodedStr.trim().startsWith('{')) {
-            decodedStr = Buffer.from(decodedStr, 'base64').toString('utf-8');
-          }
-          const sessObj = JSON.parse(decodedStr);
-          if (sessObj?.token && (sessObj?.userID || sessObj?.snsUserID)) {
-            const session: StoredHuaweiSession = {
-              token: sessObj.token,
-              snsUserID: sessObj.userID || sessObj.snsUserID,
-              expireTime: sessObj.expires || sessObj.expireTime || '',
-              updatedAt: new Date().toISOString(),
-            };
-            savePersistedSession(session);
-            return session;
-          }
-        }
-      }
-    }
-  } catch {
-    // ignore
-  }
-
-  // Fallback 2: Decrypt from ~/.config/tinglan/native-v1/session.local.json
-  try {
-    const sessionLocalPath = path.join(TINGLAN_CONFIG_DIR, 'session.local.json');
-    if (fs.existsSync(sessionLocalPath)) {
-      const raw = JSON.parse(fs.readFileSync(sessionLocalPath, 'utf-8'));
-      if (raw?.version === 1 && raw?.key && raw?.data) {
-        const key = Buffer.from(raw.key, 'base64');
-        const blob = Buffer.from(raw.data, 'base64');
-        const nonce = blob.subarray(0, 12);
-        const tag = blob.subarray(blob.length - 16);
-        const ct = blob.subarray(12, blob.length - 16);
-        const decipher = crypto.createDecipheriv('aes-256-gcm', key, nonce);
-        decipher.setAuthTag(tag);
-        decipher.setAAD(Buffer.from('hwmusic-viva-session-v1'));
-        const plain = Buffer.concat([decipher.update(ct), decipher.final()]).toString('utf-8');
-        const doc = JSON.parse(plain);
-        if (doc?.Token && doc?.User) {
-          const session: StoredHuaweiSession = {
-            token: doc.Token,
-            snsUserID: doc.User,
-            expireTime: doc.Expiry || '',
-            updatedAt: new Date().toISOString(),
-          };
-          savePersistedSession(session);
-          return session;
-        }
-      }
-    }
-  } catch {
-    // ignore
-  }
-
   return null;
 }
 
@@ -929,7 +854,7 @@ export function huaweiDevBridgePlugin(): Plugin {
           // All JSON API endpoints below
           res.setHeader('Content-Type', 'application/json; charset=utf-8');
 
-          // 1. Check current persisted session status (auto-imports tinglan vault if present)
+          // 1. Check current persisted session status
           if (urlObj.pathname === '/api/huawei/status' && req.method === 'GET') {
             const sess = loadPersistedSession();
             res.end(

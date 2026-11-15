@@ -1,0 +1,95 @@
+name: Build Multi-Platform Desktop Bundles (Windows / macOS / Linux)
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-tauri:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            args: ""
+            label: linux-x86_64
+          - platform: windows-latest
+            args: ""
+            label: windows-x86_64
+          - platform: macos-latest
+            args: "--target aarch64-apple-darwin"
+            label: macos-aarch64
+          - platform: macos-latest
+            args: "--target x86_64-apple-darwin"
+            label: macos-x86_64
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux system dependencies (WebKit2GTK & Ayatana AppIndicator)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            rpm
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust cargo cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run frontend unit tests
+        run: pnpm test -- --run
+
+      - name: Build Tauri desktop application
+        run: pnpm tauri build ${{ matrix.args }}
+
+      - name: Upload desktop installer artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: future-music-${{ matrix.label }}
+          path: |
+            src-tauri/target/**/release/bundle/msi/*.msi
+            src-tauri/target/**/release/bundle/nsis/*.exe
+            src-tauri/target/**/release/bundle/dmg/*.dmg
+            src-tauri/target/**/release/bundle/macos/*.app
+            src-tauri/target/**/release/bundle/deb/*.deb
+            src-tauri/target/**/release/bundle/rpm/*.rpm
+            src-tauri/target/**/release/bundle/appimage/*.AppImage
+          if-no-files-found: ignore

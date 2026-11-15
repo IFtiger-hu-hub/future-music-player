@@ -148,6 +148,34 @@ async fn poll_netease_qr(params: serde_json::Value) -> Result<serde_json::Value,
 }
 
 #[tauri::command]
+fn get_webdav_status() -> serde_json::Value {
+    if let Some(sess) = bridge_server::load_webdav_session() {
+        return serde_json::json!({
+            "loggedIn": true,
+            "endpoint": sess.endpoint,
+            "username": sess.username,
+        });
+    }
+    serde_json::json!({ "loggedIn": false })
+}
+
+#[tauri::command]
+async fn sync_webdav_library(params: serde_json::Value) -> Result<serde_json::Value, String> {
+    bridge_server::handle_webdav_sync(&params).await
+}
+
+#[tauri::command]
+async fn resolve_webdav_track(params: serde_json::Value) -> Result<serde_json::Value, String> {
+    bridge_server::handle_webdav_resolve(&params).await
+}
+
+#[tauri::command]
+fn logout_webdav_session() -> serde_json::Value {
+    bridge_server::clear_webdav_session();
+    serde_json::json!({ "ok": true })
+}
+
+#[tauri::command]
 fn get_huawei_auth_contract(state: State<'_, AppRuntimeState>) -> HuaweiAuthPreview {
     let attempt = huawei::AuthAttempt::new(huawei::now_epoch_secs());
     let auth_url = attempt.authorize_url();
@@ -669,6 +697,10 @@ pub fn run() {
             resolve_netease_track,
             create_netease_qr,
             poll_netease_qr,
+            get_webdav_status,
+            sync_webdav_library,
+            resolve_webdav_track,
+            logout_webdav_session,
             get_huawei_auth_contract,
             start_huawei_webview_login,
             submit_huawei_callback_url,
@@ -706,8 +738,8 @@ mod tests {
         let hw_acc = db
             .upsert_account(
                 "huawei",
-                "sns_hash_9021",
-                "HUAWEI ID 186****9021",
+                "sns_hash_demo",
+                "HUAWEI ID DemoUser",
                 "logged_in",
                 1731110400000,
             )
@@ -909,7 +941,7 @@ mod tests {
         let key = [42u8; 32];
         let sess = MusicSession {
             token: "sec_token_abc".into(),
-            sns_user_id: "uid_9021".into(),
+            sns_user_id: "uid_demo".into(),
             expire_time: "20261231235959".into(),
         };
         let sealed = seal_session(&sess, &key).expect("seal session");
@@ -1126,8 +1158,8 @@ mod tests {
         })];
 
         db.persist_netease_sync(
-            "32953014",
-            "binaryify",
+            "100001",
+            "demo_user",
             &ncm_tracks,
             &ncm_playlists,
             1710000002000,

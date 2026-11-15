@@ -31,6 +31,19 @@ export interface NeteaseSessionStatus {
   hasCookie?: boolean;
 }
 
+export interface WebdavSessionStatus {
+  loggedIn: boolean;
+  endpoint?: string;
+  username?: string;
+}
+
+export interface SyncedWebdavLibrary {
+  endpoint: string;
+  username: string;
+  tracks: CanonicalTrack[];
+  playlists: PlaylistItem[];
+}
+
 export interface SyncedNeteaseLibrary {
   uid: string;
   nickname: string;
@@ -87,9 +100,17 @@ export interface HuaweiPlaylistDetailResult {
 function mapRawTracks(rawTracks: any[]): CanonicalTrack[] {
   return (rawTracks || []).map((t: any): CanonicalTrack => {
     const isLocal = t.source === 'local';
+    const isWebdav =
+      t.source === 'webdav' || String(t.id || '').startsWith('webdav_');
     const isNetease =
       t.source === 'netease' || String(t.id || '').startsWith('ncm_');
-    const source = isLocal ? 'local' : isNetease ? 'netease' : 'huawei';
+    const source = isLocal
+      ? 'local'
+      : isWebdav
+        ? 'webdav'
+        : isNetease
+          ? 'netease'
+          : 'huawei';
 
     return {
       id: t.id,
@@ -97,14 +118,22 @@ function mapRawTracks(rawTracks: any[]): CanonicalTrack[] {
       artists: t.artists || ['未知艺人'],
       album:
         t.album ||
-        (isLocal ? '本地无损专辑' : isNetease ? '网易云音乐' : '华为音乐'),
+        (isLocal
+          ? '本地无损专辑'
+          : isWebdav
+            ? 'WebDAV 云盘无损'
+            : isNetease
+              ? '网易云音乐'
+              : '华为音乐'),
       durationSeconds: t.durationSeconds || 225,
       coverUrl: t.coverUrl || DEFAULT_HUAWEI_COVER,
       dominantColors: isLocal
         ? ['#065F46', '#18181B', '#09090B']
-        : isNetease
-          ? ['#7F1D1D', '#18181B', '#09090B']
-          : ['#4C1D24', '#18181B', '#09090B'],
+        : isWebdav
+          ? ['#0369A1', '#0F172A', '#020617']
+          : isNetease
+            ? ['#7F1D1D', '#18181B', '#09090B']
+            : ['#4C1D24', '#18181B', '#09090B'],
       isFavorite: t.isFavorite !== undefined ? Boolean(t.isFavorite) : true,
       audioUrl: t.streamUrl || undefined,
       bindings: [
@@ -112,14 +141,21 @@ function mapRawTracks(rawTracks: any[]): CanonicalTrack[] {
           source,
           sourceTrackId: t.sourceTrackId,
           access: 'full',
-          quality: isLocal ? 'hires' : isNetease ? 'standard' : 'lossless',
+          quality:
+            isLocal || isWebdav
+              ? (t.quality as 'lossless' | 'hires' | 'standard') || 'lossless'
+              : isNetease
+                ? 'standard'
+                : 'lossless',
           formatLabel: isLocal
             ? '本地 FLAC'
-            : isNetease
-              ? t.isVip
-                ? 'VIP 自动无损点亮'
-                : '网易云 320k'
-              : '无损 FLAC',
+            : isWebdav
+              ? t.formatLabel || 'WebDAV FLAC'
+              : isNetease
+                ? t.isVip
+                  ? 'VIP 自动无损点亮'
+                  : '网易云 320k'
+                : '无损 FLAC',
           streamUrl: t.streamUrl || undefined,
         },
       ],
@@ -130,9 +166,11 @@ function mapRawTracks(rawTracks: any[]): CanonicalTrack[] {
           text: `${t.title} — ${t.artists?.join(' / ')}`,
           translation: isLocal
             ? `本地音频文件 · ${t.sourceTrackId}`
-            : isNetease
-              ? '正在加载网易云双语 / 逐字 YRC 歌词...'
-              : '正在加载华为音乐逐字 HMRC / LRC 歌词...',
+            : isWebdav
+              ? `WebDAV 私有云音源 · ${t.sourceTrackId}`
+              : isNetease
+                ? '正在加载网易云双语 / 逐字 YRC 歌词...'
+                : '正在加载华为音乐逐字 HMRC / LRC 歌词...',
         },
       ],
     };
@@ -458,9 +496,11 @@ export const musicGateway = {
           source:
             p.source === 'local'
               ? 'local'
-              : p.source === 'netease'
-                ? 'netease'
-                : 'huawei',
+              : p.source === 'webdav'
+                ? 'webdav'
+                : p.source === 'netease'
+                  ? 'netease'
+                  : 'huawei',
           name: p.name,
           description: p.description || '本地持久化歌单',
           coverUrl: p.coverUrl || tracks[0]?.coverUrl || INITIAL_TRACKS[0].coverUrl,
@@ -806,5 +846,152 @@ export const musicGateway = {
     } catch {
       // ignore offline error
     }
+  },
+
+  async fetchWebdavStatus(): Promise<WebdavSessionStatus | null> {
+    if (isTauriRuntime()) {
+      try {
+        return await invoke<WebdavSessionStatus>('get_webdav_status');
+      } catch {
+        // fallback below
+      }
+    }
+    try {
+      const res = await fetch(apiUrl('/api/webdav/status'));
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  },
+
+  async syncWebdavLibrary(params: {
+    endpoint: string;
+    username?: string;
+    password?: string;
+  }): Promise<SyncedWebdavLibrary> {
+    let data: any = null;
+    if (isTauriRuntime()) {
+      data = await invoke<any>('sync_webdav_library', { params });
+    } else {
+      const res = await fetch(apiUrl('/api/webdav/sync'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.error || 'WebDAV 目录扫描同步失败');
+      }
+      data = json;
+    }
+
+    if (!data?.ok) {
+      throw new Error(data?.error || 'WebDAV 目录扫描同步失败');
+    }
+
+    const tracks = mapRawTracks(data.tracks || []);
+    const playlists: PlaylistItem[] = (data.playlists || []).map(
+      (p: any): PlaylistItem => ({
+        id: p.id || 'pl_webdav_all',
+        kind: 'imported',
+        source: 'webdav',
+        name: p.name || 'WebDAV · 云盘无损曲库',
+        description: p.description || `来自 WebDAV (${data.endpoint}) 扫描曲库`,
+        coverUrl: p.coverUrl || tracks[0]?.coverUrl || INITIAL_TRACKS[0].coverUrl,
+        trackCount: p.trackCount || p.trackIds?.length || tracks.length,
+        updatedAt: '刚刚同步 · WebDAV',
+        trackIds: Array.isArray(p.trackIds)
+          ? p.trackIds
+          : tracks.map((t) => t.id),
+      })
+    );
+
+    return {
+      endpoint: data.endpoint,
+      username: data.username || '匿名访问',
+      tracks,
+      playlists,
+    };
+  },
+
+  async resolveWebdavTrack(params: {
+    contentCode: string;
+    title: string;
+    artist: string;
+    quality: 'lossless' | 'hires' | 'standard';
+  }): Promise<ResolvedStreamResult> {
+    if (isTauriRuntime()) {
+      try {
+        const res = await invoke<any>('resolve_webdav_track', { params });
+        return {
+          ok: Boolean(res?.ok && res.streamUrl),
+          status: 200,
+          contentCode: res.contentCode,
+          streamUrl: res.streamUrl,
+          quality:
+            res.quality === 'hires'
+              ? 'hires'
+              : res.quality === 'standard'
+                ? 'standard'
+                : 'lossless',
+          formatLabel: res.formatLabel || 'WebDAV FLAC',
+          isPreview: false,
+          durationSeconds: res.durationSeconds,
+          lyrics: Array.isArray(res.lyrics) ? res.lyrics : undefined,
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          status: 404,
+          error: String(err || '当前 WebDAV 音频流无法连接'),
+        };
+      }
+    }
+
+    const resp = await fetch(apiUrl('/api/webdav/resolve'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    if (!resp.ok) {
+      const errData = await resp.json().catch(() => ({}));
+      return {
+        ok: false,
+        status: resp.status,
+        error: errData.error || '当前 WebDAV 音频流无法连接',
+      };
+    }
+    const res = await resp.json();
+    return {
+      ok: Boolean(res?.ok && res.streamUrl),
+      status: 200,
+      contentCode: res.contentCode,
+      streamUrl: res.streamUrl,
+      quality:
+        res.quality === 'hires'
+          ? 'hires'
+          : res.quality === 'standard'
+            ? 'standard'
+            : 'lossless',
+      formatLabel: res.formatLabel || 'WebDAV FLAC',
+      isPreview: false,
+      durationSeconds: res.durationSeconds,
+      lyrics: Array.isArray(res.lyrics) ? res.lyrics : undefined,
+    };
+  },
+
+  async logoutWebdavSession(): Promise<void> {
+    if (isTauriRuntime()) {
+      try {
+        await invoke('logout_webdav_session');
+        return;
+      } catch {
+        // fallback below
+      }
+    }
+    await fetch(apiUrl('/api/webdav/logout'), { method: 'POST' }).catch(() => {});
   },
 };

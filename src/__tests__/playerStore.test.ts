@@ -45,19 +45,30 @@ describe('Future Music Player Multi-Source Store & Huawei Sync Engine', () => {
     expect(updated.activeSourceForPlayback).toBe('huawei');
   });
 
-  it('retains only the 3 real audio sources (huawei, local, netease) and supports NetEase UID modal', () => {
+  it('supports the 4 real audio sources (huawei, local, netease, webdav) and modals', () => {
     const store = usePlayerStore.getState();
     expect(store.sources.map((s) => s.id)).toEqual([
       'huawei',
       'local',
       'netease',
+      'webdav',
     ]);
-    expect(store.fallbackPriority).toEqual(['local', 'huawei', 'netease']);
+    expect(store.fallbackPriority).toEqual([
+      'local',
+      'webdav',
+      'huawei',
+      'netease',
+    ]);
 
     store.setNeteaseModalOpen(true);
     expect(usePlayerStore.getState().isNeteaseModalOpen).toBe(true);
     store.setNeteaseModalOpen(false);
     expect(usePlayerStore.getState().isNeteaseModalOpen).toBe(false);
+
+    store.setWebdavModalOpen(true);
+    expect(usePlayerStore.getState().isWebdavModalOpen).toBe(true);
+    store.setWebdavModalOpen(false);
+    expect(usePlayerStore.getState().isWebdavModalOpen).toBe(false);
   });
 
   it('preserves local favorites when signing out of a third-party source', () => {
@@ -80,7 +91,7 @@ describe('Future Music Player Multi-Source Store & Huawei Sync Engine', () => {
   it('completes Huawei OAuth PKCE + loginex session re-authentication', () => {
     usePlayerStore
       .getState()
-      .completeHuaweiReauth('HUAWEI ID · 186****9021 (SVIP Verified)');
+      .completeHuaweiReauth('HUAWEI ID · DemoUser (SVIP Verified)');
 
     const hw = usePlayerStore.getState().sources.find((s) => s.id === 'huawei')!;
     expect(hw.loggedIn).toBe(true);

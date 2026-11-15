@@ -2,7 +2,7 @@ import { THEME_PALETTES, getThemePalette } from '../theme/palettes';
 
 export { THEME_PALETTES, getThemePalette };
 
-export type SourceId = 'huawei' | 'netease' | 'local';
+export type SourceId = 'huawei' | 'netease' | 'local' | 'webdav';
 
 export type NavSection =
   | 'favorites'

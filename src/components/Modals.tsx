@@ -442,13 +442,6 @@ export const NeteaseConnectModal: React.FC = () => {
                     <label className="text-[12px] font-semibold text-white/85">
                       方式二：直接输入网易云昵称或 UID（免扫码秒同步）
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => setUidInput('IFTiger')}
-                      className="text-[11px] text-[#FA2D48] hover:underline cursor-pointer"
-                    >
-                      填入 IFTiger
-                    </button>
                   </div>
                   <input
                     value={uidInput}
@@ -458,7 +451,7 @@ export const NeteaseConnectModal: React.FC = () => {
                         void handleSync();
                       }
                     }}
-                    placeholder="直接输入昵称（如 IFTiger）或数字 UID..."
+                    placeholder="直接输入网易云昵称或数字 UID..."
                     className="w-full mt-1.5 px-4 py-2.5 rounded-full bg-white/[0.06] border border-white/[0.1] text-[13px] text-white placeholder-white/35 focus:outline-none focus:border-[#E60026]"
                   />
                 </div>
@@ -519,6 +512,7 @@ export const ImportAssetsModal: React.FC = () => {
   const sources = usePlayerStore((s) => s.sources);
   const triggerHuaweiSync = usePlayerStore((s) => s.triggerHuaweiSync);
   const setNeteaseModalOpen = usePlayerStore((s) => s.setNeteaseModalOpen);
+  const setWebdavModalOpen = usePlayerStore((s) => s.setWebdavModalOpen);
   const scanLocalFolder = usePlayerStore((s) => s.scanLocalFolder);
   const toggleSourceLogin = usePlayerStore((s) => s.toggleSourceLogin);
 
@@ -591,6 +585,16 @@ export const ImportAssetsModal: React.FC = () => {
                       className="px-3.5 py-1.5 rounded-full bg-[#E60026] hover:bg-[#FF1A40] !text-white text-xs font-semibold shrink-0 cursor-pointer"
                     >
                       同步 UID 歌单
+                    </button>
+                  ) : src.id === 'webdav' ? (
+                    <button
+                      onClick={() => {
+                        setOpen(false);
+                        setWebdavModalOpen(true);
+                      }}
+                      className="px-3.5 py-1.5 rounded-full bg-[#0EA5E9] hover:bg-[#38BDF8] !text-white text-xs font-semibold shrink-0 cursor-pointer"
+                    >
+                      配置 / 扫描 WebDAV
                     </button>
                   ) : src.loggedIn ? (
                     <button
@@ -698,6 +702,185 @@ export const CommandPaletteModal: React.FC = () => {
                 </div>
               ))}
             </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+};
+
+const WEBDAV_PRESETS = [
+  {
+    label: 'AList 默认目录',
+    url: 'http://127.0.0.1:5244/dav/Music',
+  },
+  {
+    label: '群晖 Synology NAS',
+    url: 'http://192.168.1.100:5005/music',
+  },
+  {
+    label: '飞牛 fnOS / OpenWrt',
+    url: 'http://192.168.1.100:5005/dav/Music',
+  },
+  {
+    label: '坚果云 WebDAV',
+    url: 'https://dav.jianguoyun.com/dav/Music',
+  },
+];
+
+export const WebdavConnectModal: React.FC = () => {
+  const isOpen = usePlayerStore((s) => s.isWebdavModalOpen);
+  const setOpen = usePlayerStore((s) => s.setWebdavModalOpen);
+  const isSyncing = usePlayerStore((s) => s.isSyncingWebdav);
+  const syncWebdavLibrary = usePlayerStore((s) => s.syncWebdavLibrary);
+
+  const [endpoint, setEndpoint] = useState('http://127.0.0.1:5244/dav/Music');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+
+  useEffect(() => {
+    if (!isOpen) return;
+    musicGateway.fetchWebdavStatus().then((status) => {
+      if (status?.endpoint) {
+        setEndpoint(status.endpoint);
+      }
+      if (status?.username) {
+        setUsername(status.username);
+      }
+    });
+  }, [isOpen]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!endpoint.trim() || isSyncing) return;
+    void syncWebdavLibrary(
+      endpoint.trim(),
+      username.trim(),
+      password
+    );
+  };
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={() => setOpen(false)}
+          className="fixed inset-0 z-50 bg-black/50 backdrop-blur-md flex items-center justify-center p-4 select-none"
+        >
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0, y: 10 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.95, opacity: 0, y: 10 }}
+            transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-[490px] rounded-[28px] theme-modal backdrop-blur-2xl border overflow-hidden"
+          >
+            <div className="px-6 py-4 border-b border-white/[0.07] flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <span className="w-6 h-6 rounded-lg bg-[#0EA5E9] flex items-center justify-center text-[11px] font-bold !text-white">
+                  云
+                </span>
+                <h3 className="text-[16px] font-bold text-white">
+                  挂载 WebDAV 私有云 / NAS 无损曲库
+                </h3>
+              </div>
+              <button
+                onClick={() => setOpen(false)}
+                className="w-7 h-7 rounded-full bg-white/[0.08] hover:bg-white/[0.15] flex items-center justify-center text-white/60 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+              <p className="text-[12.5px] text-white/65 leading-relaxed">
+                通过标准 WebDAV <code className="text-sky-400">PROPFIND</code> 协议递归嗅探远程目录中的{' '}
+                <span className="text-white font-semibold">
+                  .flac / .wav / .ape / .dsf / .m4a / .mp3
+                </span>{' '}
+                音频文件，支持 HTTP Range 流式拖拽播放与同名{' '}
+                <code className="text-sky-400">.lrc</code> 歌词自动伴随加载。
+              </p>
+
+              <div className="space-y-1.5">
+                <label className="text-[11.5px] font-semibold text-white/70">
+                  快速填入常见 WebDAV 模板
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {WEBDAV_PRESETS.map((preset) => (
+                    <button
+                      type="button"
+                      key={preset.label}
+                      onClick={() => setEndpoint(preset.url)}
+                      className="px-2.5 py-1 rounded-full bg-white/[0.05] hover:bg-white/[0.11] border border-white/[0.08] text-[11px] text-white/75 cursor-pointer transition-colors"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[12px] font-semibold text-white/80">
+                  WebDAV 目录地址 (HTTP / HTTPS)
+                </label>
+                <input
+                  value={endpoint}
+                  onChange={(e) => setEndpoint(e.target.value)}
+                  placeholder="例如: http://192.168.1.100:5244/dav/Music"
+                  className="w-full h-10 px-3.5 rounded-xl bg-white/[0.06] border border-white/[0.1] text-[13px] text-white placeholder-white/35 focus:outline-none focus:border-[#0EA5E9]"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-[12px] font-semibold text-white/80">
+                    用户名 (可选)
+                  </label>
+                  <input
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder="Basic Auth 账号"
+                    className="w-full h-10 px-3.5 rounded-xl bg-white/[0.06] border border-white/[0.1] text-[13px] text-white placeholder-white/35 focus:outline-none focus:border-[#0EA5E9]"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[12px] font-semibold text-white/80">
+                    密码 / 应用授权码
+                  </label>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="如已保存可留空"
+                    className="w-full h-10 px-3.5 rounded-xl bg-white/[0.06] border border-white/[0.1] text-[13px] text-white placeholder-white/35 focus:outline-none focus:border-[#0EA5E9]"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="h-9 px-4 rounded-full btn-harmony-secondary text-[12.5px] font-semibold cursor-pointer"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSyncing || !endpoint.trim()}
+                  className="h-9 px-5 rounded-full bg-[#0EA5E9] hover:bg-[#38BDF8] disabled:opacity-50 !text-white text-[12.5px] font-semibold flex items-center gap-2 cursor-pointer shadow-lg shadow-[#0EA5E9]/25"
+                >
+                  <RefreshCw
+                    className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`}
+                  />
+                  <span>{isSyncing ? '正在嗅探扫描目录...' : '连接并扫描曲库'}</span>
+                </button>
+              </div>
+            </form>
           </motion.div>
         </motion.div>
       )}

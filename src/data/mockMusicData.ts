@@ -46,6 +46,21 @@ export const INITIAL_SOURCES: MusicSourceMeta[] = [
     protocolDesc: '网易云真实曲库检索 · UID 歌单同步 · VIP 灰歌自动由华为无损音源替补发声',
     capabilities: ['UID 歌单同步', '双语/罗马音歌词', 'VIP 灰歌无损点亮'],
   },
+  {
+    id: 'webdav',
+    name: 'WebDAV 云盘 / NAS',
+    shortName: '云',
+    accent: '#0EA5E9',
+    badgeBg: 'rgba(14, 165, 233, 0.16)',
+    loggedIn: false,
+    accountName: '支持 AList / 群晖 / 飞牛 fnOS / 坚果云',
+    syncStatus: 'never',
+    lastSyncAt: '点击配置 WebDAV 挂载无损私有云曲库',
+    favoriteCount: 0,
+    playlistCount: 0,
+    protocolDesc: 'WebDAV (PROPFIND) 递归目录嗅探 · HTTP Range 流式代理直出 · 同名 .lrc 歌词自动伴随解析',
+    capabilities: ['AList / NAS 直连', 'FLAC / Hi-Res 原盘流式', '同名 LRC 自动加载'],
+  },
 ];
 
 export const INITIAL_TRACKS: CanonicalTrack[] = [

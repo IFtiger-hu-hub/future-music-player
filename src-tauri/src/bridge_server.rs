@@ -1,12 +1,11 @@
 use crate::huawei::{
     build_music_digest_header, is_preview_stream, is_safe_resource_url, now_iso8601_utc,
-    open_session, MusicSession, MUSIC_ENDPOINT,
+    MusicSession, MUSIC_ENDPOINT,
 };
 use crate::lyrics::{
     merge_lyric_romanizations, merge_lyric_subtitles, parse_hmrc, parse_lrc, parse_netease_yrc,
     LyricLine,
 };
-use base64::{engine::general_purpose::STANDARD as BASE64_STD, Engine as _};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
@@ -36,16 +35,15 @@ pub fn active_bridge_port() -> u16 {
 }
 
 fn home_dir() -> PathBuf {
-    std::env::var("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("/tmp"))
+    crate::db::LibraryDb::user_home_dir()
+}
+
+fn app_config_dir() -> PathBuf {
+    crate::db::LibraryDb::app_config_dir()
 }
 
 fn future_session_file() -> PathBuf {
-    home_dir()
-        .join(".config")
-        .join("future-music")
-        .join("huawei-session.json")
+    app_config_dir().join("huawei-session.json")
 }
 
 pub fn save_persisted_session(session: &MusicSession) {
@@ -64,7 +62,6 @@ pub fn save_persisted_session(session: &MusicSession) {
 }
 
 pub fn load_persisted_session() -> Option<MusicSession> {
-    // 1. Check ~/.config/future-music/huawei-session.json
     let primary = future_session_file();
     if let Ok(raw) = fs::read_to_string(&primary) {
         if let Ok(v) = serde_json::from_str::<Value>(&raw) {
@@ -95,46 +92,6 @@ pub fn load_persisted_session() -> Option<MusicSession> {
             }
         }
     }
-
-    // 2. Auto-discover from ~/.config/tinglan/native-v1/secrets.local.json + vault.key
-    let tinglan_dir = home_dir().join(".config").join("tinglan").join("native-v1");
-    let secrets_path = tinglan_dir.join("secrets.local.json");
-    let key_path = tinglan_dir.join("vault.key");
-    if let (Ok(secrets_raw), Ok(key_b64)) = (
-        fs::read_to_string(&secrets_path),
-        fs::read_to_string(&key_path),
-    ) {
-        if let (Ok(secrets_json), Ok(key_bytes)) = (
-            serde_json::from_str::<Value>(&secrets_raw),
-            BASE64_STD.decode(key_b64.trim()),
-        ) {
-            if key_bytes.len() == 32 {
-                let mut key_arr = [0u8; 32];
-                key_arr.copy_from_slice(&key_bytes);
-                if let Some(entry_b64) = secrets_json
-                    .get("entries")
-                    .and_then(|e| e.get("plugin.session.huawei"))
-                    .and_then(|s| s.as_str())
-                {
-                    if let Ok(outer_blob) = BASE64_STD.decode(entry_b64.trim()) {
-                        if outer_blob.len() > 28 {
-                            use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
-                            if let Ok(cipher) = Aes256Gcm::new_from_slice(&key_arr) {
-                                let nonce = Nonce::from_slice(&outer_blob[..12]);
-                                if let Ok(inner_blob) = cipher.decrypt(nonce, &outer_blob[12..]) {
-                                    if let Ok(sess) = open_session(&inner_blob, &key_arr) {
-                                        save_persisted_session(&sess);
-                                        return Some(sess);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     None
 }
 
@@ -260,7 +217,7 @@ async fn huawei_post(token: &str, path: &str, body: Value) -> Result<Value, Stri
         .post(format!("{}{}", MUSIC_ENDPOINT, path))
         .header("Content-Type", "application/json;charset=utf-8")
         .header("Authorization", auth)
-        .header("User-Agent", "tinglan-native/0.1")
+        .header("User-Agent", "FutureMusic/0.1.0")
         .json(&body)
         .send()
         .await
@@ -274,7 +231,7 @@ async fn huawei_get(token: &str, path_with_query: &str) -> Result<Value, String>
     let resp = client
         .get(format!("{}{}", MUSIC_ENDPOINT, path_with_query))
         .header("Authorization", auth)
-        .header("User-Agent", "tinglan-native/0.1")
+        .header("User-Agent", "FutureMusic/0.1.0")
         .send()
         .await
         .map_err(|e| e.to_string())?;
@@ -975,10 +932,7 @@ pub struct NeteaseSession {
 }
 
 fn netease_session_file() -> PathBuf {
-    home_dir()
-        .join(".config")
-        .join("future-music")
-        .join("netease-session.json")
+    app_config_dir().join("netease-session.json")
 }
 
 pub fn save_netease_session(session: &NeteaseSession) {
@@ -1939,7 +1893,7 @@ fn proxy_huawei_stream(mut stream: TcpStream, raw_url: &str, range_header: Optio
     let url_owned = raw_url.to_string();
     let _ = tauri::async_runtime::block_on(async move {
         let client = http_client();
-        let mut req = client.get(&url_owned).header("User-Agent", "tinglan-native/0.1");
+        let mut req = client.get(&url_owned).header("User-Agent", "FutureMusic/0.1.0");
         if let Some(ref r) = range_header {
             req = req.header("Range", r);
         }
@@ -2052,6 +2006,561 @@ fn serve_local_file_stream(mut stream: TcpStream, file_path: &str, range_header:
     );
     let _ = stream.write_all(hdr.as_bytes());
     let _ = std::io::copy(&mut file, &mut stream);
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct WebdavSession {
+    pub endpoint: String,
+    pub username: String,
+    pub password: String,
+    #[serde(default)]
+    pub track_count: usize,
+}
+
+fn webdav_session_file() -> PathBuf {
+    app_config_dir().join("webdav-session.json")
+}
+
+pub fn load_webdav_session() -> Option<WebdavSession> {
+    let path = webdav_session_file();
+    let raw = fs::read_to_string(&path).ok()?;
+    let sess: WebdavSession = serde_json::from_str(&raw).ok()?;
+    if sess.endpoint.trim().is_empty() {
+        return None;
+    }
+    Some(sess)
+}
+
+pub fn save_webdav_session(sess: &WebdavSession) {
+    let path = webdav_session_file();
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if let Ok(raw) = serde_json::to_string_pretty(sess) {
+        let _ = fs::write(&path, raw);
+    }
+}
+
+pub fn clear_webdav_session() {
+    let _ = fs::remove_file(webdav_session_file());
+}
+
+fn extract_xml_tag_value(block: &str, tag_local_name: &str) -> Option<String> {
+    let lower = block.to_ascii_lowercase();
+    let needle = tag_local_name.to_ascii_lowercase();
+    let mut search_from = 0;
+    while let Some(lt) = lower[search_from..].find('<') {
+        let idx = search_from + lt;
+        let rest = &lower[idx + 1..];
+        if rest.starts_with('/') {
+            search_from = idx + 1;
+            continue;
+        }
+        let Some(gt_rel) = rest.find('>') else {
+            break;
+        };
+        let tag_header = &rest[..gt_rel];
+        let tag_name = tag_header.split_whitespace().next().unwrap_or("");
+        let clean_name = tag_name.rsplit(':').next().unwrap_or(tag_name);
+        if clean_name == needle && !tag_header.ends_with('/') {
+            let content_start = idx + 1 + gt_rel + 1;
+            let after_open = &lower[content_start..];
+            // Find matching closing tag `</...tag_local_name>`
+            let mut close_search = 0;
+            while let Some(clt) = after_open[close_search..].find("</") {
+                let cidx = close_search + clt;
+                let crest = &after_open[cidx + 2..];
+                if let Some(cgt) = crest.find('>') {
+                    let close_name = crest[..cgt].trim();
+                    let close_local = close_name.rsplit(':').next().unwrap_or(close_name);
+                    if close_local == needle {
+                        return Some(
+                            block[content_start..content_start + cidx]
+                                .trim()
+                                .to_string(),
+                        );
+                    }
+                    close_search = cidx + 2 + cgt;
+                } else {
+                    break;
+                }
+            }
+        }
+        search_from = idx + 1 + gt_rel;
+    }
+    None
+}
+
+fn percent_decode_utf8(input: &str) -> String {
+    let mut bytes = Vec::with_capacity(input.len());
+    let raw = input.as_bytes();
+    let mut i = 0;
+    while i < raw.len() {
+        if raw[i] == b'%' && i + 2 < raw.len() {
+            if let Ok(hex_str) = std::str::from_utf8(&raw[i + 1..i + 3]) {
+                if let Ok(val) = u8::from_str_radix(hex_str, 16) {
+                    bytes.push(val);
+                    i += 3;
+                    continue;
+                }
+            }
+        }
+        bytes.push(raw[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&bytes).to_string()
+}
+
+struct WebdavPropItem {
+    full_url: String,
+    decoded_path: String,
+    is_dir: bool,
+    size_bytes: u64,
+}
+
+async fn propfind_directory(
+    dir_url: &str,
+    username: &str,
+    password: &str,
+) -> Result<Vec<WebdavPropItem>, String> {
+    let parsed_base = Url::parse(dir_url).map_err(|e| format!("WebDAV URL 格式无效: {e}"))?;
+    let method = reqwest::Method::from_bytes(b"PROPFIND").unwrap();
+    let mut req = http_client()
+        .request(method, dir_url)
+        .header("Depth", "1")
+        .header("Content-Type", "application/xml; charset=utf-8")
+        .header("User-Agent", "FutureMusicPlayer-WebDAV/1.0");
+    if !username.trim().is_empty() {
+        req = req.basic_auth(username.trim(), Some(password));
+    }
+
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("连接 WebDAV 服务器失败: {e}"))?;
+    let status = resp.status().as_u16();
+    if status == 401 || status == 403 {
+        return Err("WebDAV 认证失败 (401/403)，请检查用户名与密码或应用授权码".into());
+    }
+    if status >= 400 {
+        return Err(format!("WebDAV PROPFIND 返回 HTTP {status}"));
+    }
+
+    let xml = resp
+        .text()
+        .await
+        .map_err(|e| format!("读取 WebDAV 响应失败: {e}"))?;
+
+    let mut out = Vec::new();
+    let base_path_norm = parsed_base.path().trim_end_matches('/');
+
+    // Split by `<...:response` or `<response` blocks
+    let lower = xml.to_ascii_lowercase();
+    let mut cursor = 0;
+    while let Some(pos) = lower[cursor..].find("response") {
+        let abs_pos = cursor + pos;
+        // Must be preceded by `<` or `<ns:`
+        let before = &lower[..abs_pos];
+        let Some(lt_pos) = before.rfind('<') else {
+            cursor = abs_pos + 8;
+            continue;
+        };
+        let prefix = &before[lt_pos + 1..];
+        if prefix.starts_with('/')
+            || (!prefix.is_empty() && !prefix.ends_with(':') && prefix.contains(' '))
+        {
+            cursor = abs_pos + 8;
+            continue;
+        }
+        // Find closing `response>`
+        let after = &lower[abs_pos + 8..];
+        let Some(end_rel) = after.find("response>") else {
+            break;
+        };
+        let block_end = abs_pos + 8 + end_rel + 9;
+        let block = &xml[lt_pos..block_end.min(xml.len())];
+        cursor = block_end;
+
+        let Some(href_raw) = extract_xml_tag_value(block, "href") else {
+            continue;
+        };
+        let href_trimmed = href_raw.trim();
+        let item_url = if href_trimmed.starts_with("http://") || href_trimmed.starts_with("https://")
+        {
+            Url::parse(href_trimmed).ok()
+        } else {
+            parsed_base.join(href_trimmed).ok()
+        };
+        let Some(item_url) = item_url else {
+            continue;
+        };
+        let item_path_norm = item_url.path().trim_end_matches('/');
+        if item_path_norm == base_path_norm {
+            // Skip self directory entry
+            continue;
+        }
+
+        let block_lower = block.to_ascii_lowercase();
+        let is_dir = block_lower.contains(":collection")
+            || block_lower.contains("<collection")
+            || href_trimmed.ends_with('/');
+        let size_bytes = extract_xml_tag_value(block, "getcontentlength")
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0);
+        let decoded_path = percent_decode_utf8(item_url.path());
+
+        out.push(WebdavPropItem {
+            full_url: item_url.to_string(),
+            decoded_path,
+            is_dir,
+            size_bytes,
+        });
+    }
+
+    Ok(out)
+}
+
+pub async fn handle_webdav_sync(body: &Value) -> Result<Value, String> {
+    let saved = load_webdav_session();
+    let endpoint_raw = body
+        .get("endpoint")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| saved.as_ref().map(|s| s.endpoint.clone()))
+        .ok_or_else(|| "请填写 WebDAV 服务器地址 (如 http://192.168.1.x:5244/dav/Music)".to_string())?;
+
+    let username = body
+        .get("username")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .or_else(|| saved.as_ref().map(|s| s.username.clone()))
+        .unwrap_or_default();
+
+    let password = body
+        .get("password")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| saved.as_ref().map(|s| s.password.clone()))
+        .unwrap_or_default();
+
+    let mut endpoint = endpoint_raw;
+    if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
+        endpoint = format!("http://{endpoint}");
+    }
+    if !endpoint.ends_with('/') {
+        endpoint.push('/');
+    }
+
+    let root_items = propfind_directory(&endpoint, &username, &password).await?;
+    let mut all_files = Vec::new();
+    let mut subdirs = Vec::new();
+
+    for item in root_items {
+        if item.is_dir {
+            subdirs.push(item.full_url);
+        } else {
+            all_files.push(item);
+        }
+    }
+
+    // Crawl up to 12 immediate subdirectories (e.g. Artist or Album folders)
+    for sub_url in subdirs.into_iter().take(12) {
+        if let Ok(sub_items) = propfind_directory(&sub_url, &username, &password).await {
+            for item in sub_items {
+                if !item.is_dir {
+                    all_files.push(item);
+                }
+            }
+        }
+        if all_files.len() >= 300 {
+            break;
+        }
+    }
+
+    let audio_exts = ["flac", "mp3", "wav", "m4a", "ogg", "aac", "ape", "dsf"];
+    let default_cover = "https://contentcenter-drcn.dbankcdn.cn/img/pub_1/HW-Music_cover_100_1/93/v3/xM5ysS7yTcGMEt_KCRzMag/59b7193a-9f7e-4950-a6c5-ff658092a18c.jpg/music_cover_300x300.webp";
+
+    let mut db_inputs = Vec::new();
+    let mut frontend_tracks = Vec::new();
+
+    for file in all_files {
+        let p = Path::new(&file.decoded_path);
+        let Some(ext) = p
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|s| s.to_ascii_lowercase())
+        else {
+            continue;
+        };
+        if !audio_exts.contains(&ext.as_str()) {
+            continue;
+        }
+
+        let stem = p
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("未知曲目")
+            .trim();
+        let parent_album = p
+            .parent()
+            .and_then(|par| par.file_name())
+            .and_then(|n| n.to_str())
+            .filter(|n| !n.is_empty() && *n != "dav" && *n != "Music" && *n != "music")
+            .unwrap_or("WebDAV 云盘专辑")
+            .to_string();
+
+        // Parse "Artist - Title" if present
+        let (artist_name, title_str) = if let Some((left, right)) = stem.split_once(" - ") {
+            (left.trim().to_string(), right.trim().to_string())
+        } else {
+            ("WebDAV 典藏".to_string(), stem.to_string())
+        };
+
+        let is_lossless = matches!(ext.as_str(), "flac" | "wav" | "ape" | "dsf");
+        let quality = if ext == "dsf" || file.size_bytes > 45_000_000 {
+            "hires"
+        } else if is_lossless {
+            "lossless"
+        } else {
+            "standard"
+        };
+        let format_label = match ext.as_str() {
+            "flac" => "WebDAV FLAC",
+            "wav" => "WebDAV WAV",
+            "ape" => "WebDAV APE",
+            "dsf" => "WebDAV DSD",
+            "m4a" => "WebDAV AAC/ALAC",
+            _ => "WebDAV MP3",
+        };
+
+        let est_duration_sec = if file.size_bytes > 0 {
+            let bytes_per_sec = if is_lossless { 115_000 } else { 40_000 };
+            (file.size_bytes / bytes_per_sec).clamp(60, 900) as i64
+        } else {
+            235
+        };
+
+        let encoded_url: String =
+            url::form_urlencoded::byte_serialize(file.full_url.as_bytes()).collect();
+        let stream_url = format!(
+            "http://127.0.0.1:{}/api/webdav/stream?url={}",
+            active_bridge_port(),
+            encoded_url
+        );
+        let canon_id = crate::db::LibraryDb::canonical_id_for("webdav", &file.full_url);
+        let frontend_id = format!("webdav_{canon_id}");
+
+        db_inputs.push(crate::db::SourceTrackInput {
+            source: "webdav".into(),
+            source_track_id: file.full_url.clone(),
+            title: title_str.clone(),
+            artists: vec![crate::db::ArtistDto {
+                id: String::new(),
+                name: artist_name.clone(),
+            }],
+            album: Some(crate::db::AlbumDto {
+                id: String::new(),
+                title: parent_album.clone(),
+            }),
+            duration_ms: Some(est_duration_sec * 1000),
+            cover_url: default_cover.into(),
+            access: "full".into(),
+            quality: quality.into(),
+        });
+
+        frontend_tracks.push(json!({
+            "id": frontend_id,
+            "source": "webdav",
+            "sourceTrackId": file.full_url,
+            "title": title_str,
+            "artists": [artist_name],
+            "album": parent_album,
+            "durationSeconds": est_duration_sec,
+            "coverUrl": default_cover,
+            "isFavorite": true,
+            "quality": quality,
+            "formatLabel": format_label,
+            "streamUrl": stream_url,
+        }));
+    }
+
+    let sess = WebdavSession {
+        endpoint: endpoint.clone(),
+        username: username.clone(),
+        password: password.clone(),
+        track_count: frontend_tracks.len(),
+    };
+    save_webdav_session(&sess);
+
+    if let Ok(db) = crate::db::LibraryDb::open_default() {
+        let now_ms = (crate::huawei::now_epoch_secs() * 1000) as i64;
+        let _ = db.persist_webdav_tracks(&endpoint, &db_inputs, now_ms);
+    }
+
+    let track_ids: Vec<String> = frontend_tracks
+        .iter()
+        .filter_map(|t| t.get("id").and_then(|v| v.as_str()).map(String::from))
+        .collect();
+
+    let playlist = json!({
+        "id": "pl_webdav_root",
+        "kind": "imported",
+        "source": "webdav",
+        "sourcePlaylistId": endpoint,
+        "name": "WebDAV · 云盘无损曲库",
+        "description": format!("来自 {} 的 WebDAV 远程无损曲库", endpoint),
+        "coverUrl": default_cover,
+        "trackCount": frontend_tracks.len(),
+        "trackIds": track_ids,
+    });
+
+    Ok(json!({
+        "ok": true,
+        "endpoint": endpoint,
+        "username": username,
+        "tracks": frontend_tracks,
+        "playlists": [playlist],
+    }))
+}
+
+pub async fn handle_webdav_resolve(body: &Value) -> Result<Value, String> {
+    let raw_url = body
+        .get("contentCode")
+        .or_else(|| body.get("url"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
+    if raw_url.is_empty() {
+        return Err("缺少 WebDAV 曲目 URL".into());
+    }
+    let encoded_url: String = url::form_urlencoded::byte_serialize(raw_url.as_bytes()).collect();
+    let stream_url = format!(
+        "http://127.0.0.1:{}/api/webdav/stream?url={}",
+        active_bridge_port(),
+        encoded_url
+    );
+
+    // Attempt to fetch sidecar `.lrc` file from the same WebDAV path if present
+    let mut lyrics_out = Vec::new();
+    if let Some(dot_idx) = raw_url.rfind('.') {
+        let lrc_url = format!("{}.lrc", &raw_url[..dot_idx]);
+        let sess = load_webdav_session();
+        let mut req = http_client()
+            .get(&lrc_url)
+            .timeout(std::time::Duration::from_secs(4))
+            .header("User-Agent", "FutureMusicPlayer-WebDAV/1.0");
+        if let Some(ref s) = sess {
+            if !s.username.trim().is_empty() {
+                req = req.basic_auth(s.username.trim(), Some(&s.password));
+            }
+        }
+        if let Ok(resp) = req.send().await {
+            if resp.status().is_success() {
+                if let Ok(lrc_text) = resp.text().await {
+                    let parsed = parse_lrc(&lrc_text);
+                    if !parsed.is_empty() {
+                        lyrics_out = to_frontend_lyrics(parsed);
+                    }
+                }
+            }
+        }
+    }
+
+    let is_lossless = raw_url.to_ascii_lowercase().contains(".flac")
+        || raw_url.to_ascii_lowercase().contains(".wav")
+        || raw_url.to_ascii_lowercase().contains(".ape")
+        || raw_url.to_ascii_lowercase().contains(".dsf");
+
+    Ok(json!({
+        "ok": true,
+        "contentCode": raw_url,
+        "streamUrl": stream_url,
+        "quality": if is_lossless { "lossless" } else { "standard" },
+        "formatLabel": if is_lossless { "WebDAV 无损直出" } else { "WebDAV 原盘流" },
+        "isPreview": false,
+        "lyrics": lyrics_out,
+    }))
+}
+
+fn proxy_webdav_stream(mut stream: TcpStream, raw_url: &str, range_header: Option<String>) {
+    if !raw_url.starts_with("http://") && !raw_url.starts_with("https://") {
+        send_json(stream, 400, &json!({ "error": "invalid webdav url" }));
+        return;
+    }
+    let url_owned = raw_url.to_string();
+    let sess = load_webdav_session();
+    let _ = tauri::async_runtime::block_on(async move {
+        let client = http_client();
+        let mut req = client
+            .get(&url_owned)
+            .header("User-Agent", "FutureMusicPlayer-WebDAV/1.0");
+        if let Some(ref s) = sess {
+            if !s.username.trim().is_empty() {
+                req = req.basic_auth(s.username.trim(), Some(&s.password));
+            }
+        }
+        if let Some(ref r) = range_header {
+            req = req.header("Range", r);
+        }
+        let mut upstream = req.send().await.ok()?;
+        let status = upstream.status().as_u16();
+        let lower_url = url_owned.to_ascii_lowercase();
+        let ct_raw = upstream
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("audio/flac");
+        let ct = if lower_url.contains(".flac") || ct_raw.contains("flac") {
+            "audio/flac".to_string()
+        } else if lower_url.contains(".mp3") {
+            "audio/mpeg".to_string()
+        } else if lower_url.contains(".wav") {
+            "audio/wav".to_string()
+        } else if lower_url.contains(".m4a") {
+            "audio/mp4".to_string()
+        } else {
+            ct_raw.to_string()
+        };
+        let cl = upstream
+            .headers()
+            .get("content-length")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+        let cr = upstream
+            .headers()
+            .get("content-range")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+
+        let status_line = if status == 206 {
+            "HTTP/1.1 206 Partial Content"
+        } else {
+            "HTTP/1.1 200 OK"
+        };
+        let mut hdr = format!(
+            "{}\r\nContent-Type: {}\r\nAccept-Ranges: bytes\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n",
+            status_line, ct
+        );
+        if let Some(len_str) = cl {
+            hdr.push_str(&format!("Content-Length: {}\r\n", len_str));
+        }
+        if let Some(c_range) = cr {
+            hdr.push_str(&format!("Content-Range: {}\r\n", c_range));
+        }
+        hdr.push_str("\r\n");
+
+        if stream.write_all(hdr.as_bytes()).is_err() {
+            return Some(());
+        }
+        while let Ok(Some(chunk)) = upstream.chunk().await {
+            if stream.write_all(&chunk).is_err() {
+                break;
+            }
+        }
+        Some(())
+    });
 }
 
 /// Reads the full HTTP request headers AND full `Content-Length` body across multiple TCP packets.
@@ -2379,6 +2888,45 @@ fn handle_client(mut stream: TcpStream) {
             let target = query_map.get("path").cloned().unwrap_or_default();
             let range = headers.get("range").cloned();
             serve_local_file_stream(stream, &target, range);
+        }
+        ("GET", "/api/webdav/status") => {
+            if let Some(sess) = load_webdav_session() {
+                send_json(
+                    stream,
+                    200,
+                    &json!({
+                        "loggedIn": true,
+                        "endpoint": sess.endpoint,
+                        "username": sess.username,
+                        "trackCount": sess.track_count,
+                    }),
+                );
+            } else {
+                send_json(stream, 200, &json!({ "loggedIn": false }));
+            }
+        }
+        ("POST", "/api/webdav/sync") => {
+            let body_json: Value = serde_json::from_str(&body_part).unwrap_or_else(|_| json!({}));
+            match tauri::async_runtime::block_on(handle_webdav_sync(&body_json)) {
+                Ok(val) => send_json(stream, 200, &val),
+                Err(e) => send_json(stream, 400, &json!({ "ok": false, "error": e })),
+            }
+        }
+        ("POST", "/api/webdav/resolve") => {
+            let body_json: Value = serde_json::from_str(&body_part).unwrap_or_else(|_| json!({}));
+            match tauri::async_runtime::block_on(handle_webdav_resolve(&body_json)) {
+                Ok(val) => send_json(stream, 200, &val),
+                Err(e) => send_json(stream, 404, &json!({ "ok": false, "error": e })),
+            }
+        }
+        ("POST", "/api/webdav/logout") => {
+            clear_webdav_session();
+            send_json(stream, 200, &json!({ "ok": true }));
+        }
+        ("GET", "/api/webdav/stream") => {
+            let target = query_map.get("url").cloned().unwrap_or_default();
+            let range = headers.get("range").cloned();
+            proxy_webdav_stream(stream, &target, range);
         }
         _ => {
             send_json(stream, 404, &json!({ "error": "not found" }));

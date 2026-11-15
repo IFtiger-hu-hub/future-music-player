@@ -8,6 +8,7 @@ export const SourcesView: React.FC = () => {
   const scanLocalFolder = usePlayerStore((s) => s.scanLocalFolder);
   const triggerHuaweiSync = usePlayerStore((s) => s.triggerHuaweiSync);
   const setNeteaseModalOpen = usePlayerStore((s) => s.setNeteaseModalOpen);
+  const setWebdavModalOpen = usePlayerStore((s) => s.setWebdavModalOpen);
   const toggleSourceLogin = usePlayerStore((s) => s.toggleSourceLogin);
 
   return (
@@ -117,6 +118,14 @@ export const SourcesView: React.FC = () => {
                         className="h-8.5 px-4 rounded-full btn-harmony-primary text-[12px] font-semibold cursor-pointer"
                       >
                         同步 UID 歌单
+                      </button>
+                    )}
+                    {src.id === 'webdav' && (
+                      <button
+                        onClick={() => setWebdavModalOpen(true)}
+                        className="h-8.5 px-4 rounded-full bg-[#0EA5E9] hover:bg-[#38BDF8] !text-white text-[12px] font-semibold cursor-pointer"
+                      >
+                        挂载 / 扫描 WebDAV
                       </button>
                     )}
                     <button

@@ -16,6 +16,7 @@ const SOURCE_FILTERS: Array<{ id: SourceId | 'all'; label: string }> = [
   { id: 'all', label: '全部' },
   { id: 'huawei', label: '华为无损' },
   { id: 'netease', label: '网易云' },
+  { id: 'webdav', label: 'WebDAV' },
   { id: 'local', label: '本地' },
 ];
 
@@ -40,6 +41,7 @@ export const TopSourceBar: React.FC = () => {
   const sources = usePlayerStore((s) => s.sources);
   const setHuaweiAuthModalOpen = usePlayerStore((s) => s.setHuaweiAuthModalOpen);
   const setNeteaseModalOpen = usePlayerStore((s) => s.setNeteaseModalOpen);
+  const setWebdavModalOpen = usePlayerStore((s) => s.setWebdavModalOpen);
   const setImportModalOpen = usePlayerStore((s) => s.setImportModalOpen);
 
   const themeId = usePlayerStore((s) => s.themeId);
@@ -55,6 +57,7 @@ export const TopSourceBar: React.FC = () => {
 
   const huaweiSource = sources.find((s) => s.id === 'huawei');
   const neteaseSource = sources.find((s) => s.id === 'netease');
+  const webdavSource = sources.find((s) => s.id === 'webdav');
   const isNeteaseSynced = Boolean(
     neteaseSource?.accountName.startsWith('网易云 ·')
   );
@@ -147,7 +150,29 @@ export const TopSourceBar: React.FC = () => {
 
         {/* Right: Account Pill + HarmonyOS Acoustic Wave Icon + Rounded-Full Search Bar */}
         <div className="flex items-center justify-end gap-2 sm:gap-2.5 min-w-0 flex-1 sm:flex-initial">
-          {activeSourceFilter === 'netease' ? (
+          {activeSourceFilter === 'webdav' ? (
+            <button
+              onClick={() => setWebdavModalOpen(true)}
+              title={
+                webdavSource?.loggedIn
+                  ? webdavSource.accountName
+                  : '配置并挂载 WebDAV 云盘曲库'
+              }
+              className="flex items-center justify-center gap-2 h-9 w-9 md:w-auto md:px-3.5 rounded-full btn-harmony-secondary text-[12px] font-semibold cursor-pointer shrink-0 relative"
+            >
+              <span
+                className={`w-2 h-2 rounded-full shrink-0 md:static absolute top-1.5 right-1.5 ${
+                  webdavSource?.loggedIn ? 'bg-emerald-500' : 'bg-[#0EA5E9]'
+                }`}
+              />
+              <QrCode className="w-3.5 h-3.5 text-white/60 shrink-0" />
+              <span className="hidden md:inline max-w-[130px] xl:max-w-[150px] truncate">
+                {webdavSource?.loggedIn
+                  ? webdavSource.accountName.replace('WebDAV · ', 'WebDAV: ')
+                  : '挂载 WebDAV 曲库'}
+              </span>
+            </button>
+          ) : activeSourceFilter === 'netease' ? (
             <button
               onClick={() => setNeteaseModalOpen(true)}
               title={

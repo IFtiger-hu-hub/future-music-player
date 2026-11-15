@@ -78,11 +78,15 @@ const initialRestoredTrack: CanonicalTrack | null =
   initialUiPrefs.lastTrackSnapshot.id
     ? {
         ...initialUiPrefs.lastTrackSnapshot,
-        audioUrl: initialUiPrefs.lastTrackSnapshot.audioUrl?.includes(
-          '/api/local/stream'
-        )
-          ? initialUiPrefs.lastTrackSnapshot.audioUrl
-          : undefined,
+        audioUrl:
+          initialUiPrefs.lastTrackSnapshot.audioUrl?.includes(
+            '/api/local/stream'
+          ) ||
+          initialUiPrefs.lastTrackSnapshot.audioUrl?.includes(
+            '/api/webdav/stream'
+          )
+            ? initialUiPrefs.lastTrackSnapshot.audioUrl
+            : undefined,
       }
     : null;
 let lastPlaybackPersistWallMs = 0;
@@ -131,9 +135,11 @@ export interface PlayerState {
   isCommandPaletteOpen: boolean;
   isHuaweiAuthModalOpen: boolean;
   isNeteaseModalOpen: boolean;
+  isWebdavModalOpen: boolean;
   isImportModalOpen: boolean;
   isSyncingHuawei: boolean;
   isSyncingNetease: boolean;
+  isSyncingWebdav: boolean;
   isResolvingAudio: boolean;
   isLoadingPlaylistDetail: boolean;
 
@@ -181,10 +187,16 @@ export interface PlayerState {
   setCommandPaletteOpen: (open: boolean) => void;
   setHuaweiAuthModalOpen: (open: boolean) => void;
   setNeteaseModalOpen: (open: boolean) => void;
+  setWebdavModalOpen: (open: boolean) => void;
   setImportModalOpen: (open: boolean) => void;
   setVolume: (vol: number) => void;
   searchHuaweiCatalog: (query: string) => Promise<void>;
   syncNeteaseByUid: (uid: string, cookie?: string) => Promise<void>;
+  syncWebdavLibrary: (
+    endpoint: string,
+    username?: string,
+    password?: string
+  ) => Promise<void>;
   ensureNeteaseContentLoaded: () => Promise<void>;
 
   setDesktopLyricOpen: (open: boolean) => void;
@@ -251,9 +263,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   isCommandPaletteOpen: false,
   isHuaweiAuthModalOpen: false,
   isNeteaseModalOpen: false,
+  isWebdavModalOpen: false,
   isImportModalOpen: false,
   isSyncingHuawei: false,
   isSyncingNetease: false,
+  isSyncingWebdav: false,
   isResolvingAudio: false,
   isLoadingPlaylistDetail: false,
 
@@ -268,7 +282,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   jevEndpoint: 'https://api.openai.com/v1/chat/completions',
   jevModel: 'gpt-4o-mini',
   mergeAudits: INITIAL_MERGE_AUDITS,
-  fallbackPriority: ['local', 'huawei', 'netease'],
+  fallbackPriority: ['local', 'webdav', 'huawei', 'netease'],
 
   sources: INITIAL_SOURCES,
   tracks:
@@ -343,6 +357,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         if (firstLocal) {
           nextSelected = firstLocal.id;
         }
+      } else if (source === 'webdav') {
+        const firstWebdav = state.playlists.find((p) => p.source === 'webdav');
+        if (firstWebdav) {
+          nextSelected = firstWebdav.id;
+        }
       }
       return {
         activeSourceFilter: source,
@@ -359,6 +378,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   setCommandPaletteOpen: (open) => set({ isCommandPaletteOpen: open }),
   setHuaweiAuthModalOpen: (open) => set({ isHuaweiAuthModalOpen: open }),
   setNeteaseModalOpen: (open) => set({ isNeteaseModalOpen: open }),
+  setWebdavModalOpen: (open) => set({ isWebdavModalOpen: open }),
   setImportModalOpen: (open) => set({ isImportModalOpen: open }),
   setVolume: (vol) => {
     const clamped = Math.max(0, Math.min(100, vol));
@@ -730,30 +750,44 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       return;
     }
 
-    const useNetease =
-      activeSrc === 'netease' ||
-      (binding?.source === 'netease' &&
+    const useWebdav =
+      activeSrc === 'webdav' ||
+      (binding?.source === 'webdav' &&
         !track.bindings.some((b) => b.source === 'huawei'));
-    const targetBinding = useNetease
-      ? track.bindings.find((b) => b.source === 'netease') || binding
-      : track.bindings.find((b) => b.source === 'huawei') || binding;
+    const useNetease =
+      !useWebdav &&
+      (activeSrc === 'netease' ||
+        (binding?.source === 'netease' &&
+          !track.bindings.some((b) => b.source === 'huawei')));
+    const targetBinding = useWebdav
+      ? track.bindings.find((b) => b.source === 'webdav') || binding
+      : useNetease
+        ? track.bindings.find((b) => b.source === 'netease') || binding
+        : track.bindings.find((b) => b.source === 'huawei') || binding;
     const contentCode = targetBinding?.sourceTrackId || '';
 
     set({ isResolvingAudio: true });
     try {
-      const res = useNetease
-        ? await musicGateway.resolveNeteaseTrack({
+      const res = useWebdav
+        ? await musicGateway.resolveWebdavTrack({
             contentCode,
             title: track.title,
             artist: track.artists.join(' '),
             quality: get().qualityPreference,
           })
-        : await musicGateway.resolveTrackStream({
-            contentCode,
-            title: track.title,
-            artist: track.artists.join(' '),
-            quality: get().qualityPreference,
-          });
+        : useNetease
+          ? await musicGateway.resolveNeteaseTrack({
+              contentCode,
+              title: track.title,
+              artist: track.artists.join(' '),
+              quality: get().qualityPreference,
+            })
+          : await musicGateway.resolveTrackStream({
+              contentCode,
+              title: track.title,
+              artist: track.artists.join(' '),
+              quality: get().qualityPreference,
+            });
 
       if (!res.ok || !res.streamUrl) {
         set({ isResolvingAudio: false });
@@ -770,7 +804,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       }
 
       set((state) => {
-        const targetSource = useNetease ? 'netease' : 'huawei';
+        const targetSource: SourceId = useWebdav
+          ? 'webdav'
+          : useNetease
+            ? 'netease'
+            : 'huawei';
         const updatedTrack: CanonicalTrack = {
           ...(state.currentTrack.id === track.id ? state.currentTrack : track),
           audioUrl: res.streamUrl,
@@ -1080,7 +1118,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
       set((state) => {
         const preservedPlaylists = state.playlists.filter(
-          (p) => p.kind === 'local' || p.source === 'netease'
+          (p) =>
+            p.kind === 'local' ||
+            p.source === 'netease' ||
+            p.source === 'webdav'
         );
         const nextPlaylists = [...syncedPlaylists, ...preservedPlaylists];
         const existingOtherTracks = state.tracks.filter(
@@ -1196,6 +1237,77 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       set({ isSyncingNetease: false });
       get().pushToast(
         '网易云同步失败',
+        err instanceof Error ? err.message : String(err),
+        'warning'
+      );
+    }
+  },
+
+  syncWebdavLibrary: async (endpoint, username, password) => {
+    if (get().isSyncingWebdav) return;
+    set({ isSyncingWebdav: true });
+    try {
+      const {
+        endpoint: syncedEndpoint,
+        username: syncedUser,
+        tracks: webdavTracks,
+        playlists: webdavPlaylists,
+      } = await musicGateway.syncWebdavLibrary({
+        endpoint,
+        username,
+        password,
+      });
+
+      set((state) => {
+        const preservedPlaylists = state.playlists.filter(
+          (p) => p.source !== 'webdav'
+        );
+        const nextPlaylists = [...webdavPlaylists, ...preservedPlaylists];
+        const existingMap = new Map(state.tracks.map((t) => [t.id, t]));
+        for (const trk of webdavTracks) {
+          existingMap.set(trk.id, trk);
+        }
+        const nextTracks = Array.from(existingMap.values());
+
+        let shortHost = syncedEndpoint;
+        try {
+          shortHost = new URL(syncedEndpoint).host;
+        } catch {
+          // keep raw
+        }
+
+        return {
+          isSyncingWebdav: false,
+          isWebdavModalOpen: false,
+          tracks: nextTracks,
+          playlists: nextPlaylists,
+          selectedPlaylistId:
+            webdavPlaylists[0]?.id || state.selectedPlaylistId,
+          sources: state.sources.map((s) =>
+            s.id === 'webdav'
+              ? {
+                  ...s,
+                  loggedIn: true,
+                  accountName: `WebDAV · ${shortHost} (${syncedUser})`,
+                  favoriteCount: webdavTracks.length,
+                  playlistCount: webdavPlaylists.length,
+                  lastSyncAt: `刚刚扫描 · ${webdavTracks.length} 首无损曲目`,
+                  syncStatus: 'updated',
+                }
+              : s
+          ),
+        };
+      });
+
+      get().pushToast(
+        'WebDAV 云盘无损曲库已挂载',
+        `已通过 PROPFIND 扫描并导入 ${webdavTracks.length} 首云盘曲目，支持 HTTP Range 流式直出与同名 LRC 自动加载`,
+        'success'
+      );
+    } catch (err) {
+      set({ isSyncingWebdav: false });
+      get().pushToast(
+        'WebDAV 连接或扫描失败',
         err instanceof Error ? err.message : String(err),
         'warning'
       );
@@ -1335,12 +1447,19 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       set({ isHuaweiAuthModalOpen: true });
       return;
     }
+    if (sourceId === 'webdav' && !get().sources.find((s) => s.id === 'webdav')?.loggedIn) {
+      set({ isWebdavModalOpen: true });
+      return;
+    }
     set((state) => ({
       sources: state.sources.map((s) => {
         if (s.id !== sourceId) return s;
         const nextLogged = !s.loggedIn;
         if (!nextLogged && sourceId === 'netease') {
           void musicGateway.logoutNeteaseSession();
+        }
+        if (!nextLogged && sourceId === 'webdav') {
+          void musicGateway.logoutWebdavSession();
         }
         get().pushToast(
           nextLogged ? `${s.name} 已连接` : `${s.name} 已断开连接`,
