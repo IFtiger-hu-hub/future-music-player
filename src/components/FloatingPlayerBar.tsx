@@ -122,6 +122,31 @@ export const FloatingPlayerBar: React.FC = () => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const eqEngineRef = useRef<ParametricEqualizerEngine | null>(null);
 
+  // 冷启动单次断点续播：仅在应用启动首次挂载历史歌曲且开启记忆时消费一次，切歌或消费后永久失效
+  const initialResumePendingRef = useRef<boolean>(
+    Boolean(
+      usePlayerStore.getState().rememberPlaybackProgress &&
+        usePlayerStore.getState().currentTimeMs > 500
+    )
+  );
+  const prevTrackIdRef = useRef<string>(currentTrack.id);
+
+  // 切歌生命周期同步：任何歌曲切换操作（点歌、上一曲、下一曲、循环）坚决重置音频与进度到 0
+  useEffect(() => {
+    if (prevTrackIdRef.current !== currentTrack.id) {
+      prevTrackIdRef.current = currentTrack.id;
+      initialResumePendingRef.current = false;
+      const el = audioRef.current;
+      if (el) {
+        try {
+          el.pause();
+          el.currentTime = 0;
+        } catch {}
+      }
+      setCurrentTimeMs(0);
+    }
+  }, [currentTrack.id, setCurrentTimeMs]);
+
   if (!eqEngineRef.current) {
     eqEngineRef.current = new ParametricEqualizerEngine();
   }
@@ -165,15 +190,10 @@ export const FloatingPlayerBar: React.FC = () => {
     const tick = () => {
       const el = audioRef.current;
       if (el && !el.paused && el.readyState >= 1 && Number.isFinite(el.currentTime)) {
-        const storeMs = usePlayerStore.getState().currentTimeMs;
-        if (el.currentTime < 0.3 && storeMs > 1500) {
-          el.currentTime = storeMs / 1000;
-        } else {
-          const nowMs = Math.floor(el.currentTime * 1000);
-          if (Math.abs(nowMs - lastDispatchedMs) >= 32) {
-            lastDispatchedMs = nowMs;
-            setCurrentTimeMs(nowMs);
-          }
+        const nowMs = Math.floor(el.currentTime * 1000);
+        if (Math.abs(nowMs - lastDispatchedMs) >= 32) {
+          lastDispatchedMs = nowMs;
+          setCurrentTimeMs(nowMs);
         }
       }
       rafId = window.requestAnimationFrame(tick);
@@ -211,16 +231,17 @@ export const FloatingPlayerBar: React.FC = () => {
           if (Number.isFinite(dur) && dur > 0) {
             setTrackDurationSeconds(currentTrack.id, dur);
           }
-          const storeMs = usePlayerStore.getState().currentTimeMs;
-          if (
-            storeMs > 500 &&
-            Math.abs(e.currentTarget.currentTime * 1000 - storeMs) > 1000
-          ) {
-            const targetSec = storeMs / 1000;
-            e.currentTarget.currentTime =
-              Number.isFinite(dur) && dur > 1
-                ? Math.min(dur - 0.5, targetSec)
-                : targetSec;
+          // 仅在应用冷启动首次加载初始歌曲且有断点时恢复一次
+          if (initialResumePendingRef.current) {
+            initialResumePendingRef.current = false;
+            const bootMs = usePlayerStore.getState().currentTimeMs;
+            if (bootMs > 500) {
+              const targetSec = bootMs / 1000;
+              e.currentTarget.currentTime =
+                Number.isFinite(dur) && dur > 1
+                  ? Math.min(dur - 0.5, targetSec)
+                  : targetSec;
+            }
           }
           if (isPlaying) {
             e.currentTarget.play().catch(() => {});
@@ -234,14 +255,12 @@ export const FloatingPlayerBar: React.FC = () => {
         }}
         onTimeUpdate={(e) => {
           if (isStageOpen || e.currentTarget.readyState < 1) return;
-          const storeMs = usePlayerStore.getState().currentTimeMs;
-          if (e.currentTarget.currentTime < 0.3 && storeMs > 1500) {
-            e.currentTarget.currentTime = storeMs / 1000;
-            return;
-          }
           setCurrentTimeMs(Math.floor(e.currentTarget.currentTime * 1000));
         }}
-        onEnded={nextTrack}
+        onEnded={() => {
+          initialResumePendingRef.current = false;
+          nextTrack();
+        }}
       />
 
       {/* Bottom-Left Floating HarmonyOS Navigation Capsule (Hidden when fullscreen stage is open to save GPU backdrop-blur FBOs) */}

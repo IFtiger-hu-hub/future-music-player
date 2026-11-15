@@ -128,17 +128,17 @@ export const TopSourceBar: React.FC = () => {
                 <button
                   key={filter.id}
                   onClick={() => setActiveSourceFilter(filter.id)}
-                  className={`relative px-3.5 py-1 rounded-full text-[12px] transition-colors cursor-pointer whitespace-nowrap ${
+                  className={`relative px-3.5 py-1 rounded-full text-[12px] font-medium transition-colors cursor-pointer whitespace-nowrap ${
                     isActive
-                      ? '!text-white font-semibold'
+                      ? '!text-white'
                       : 'text-white/55 hover:text-white/90'
                   }`}
                 >
                   {isActive && (
                     <motion.div
                       layoutId="harmony-source-segment"
-                      transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-                      className="absolute inset-0 rounded-full btn-harmony-active"
+                      transition={{ type: 'spring', stiffness: 450, damping: 35 }}
+                      className="absolute inset-0 rounded-full harmony-segment-indicator"
                     />
                   )}
                   <span className="relative z-10">{filter.label}</span>
@@ -416,7 +416,7 @@ export const TopSourceBar: React.FC = () => {
             <button
               key={filter.id}
               onClick={() => setActiveSourceFilter(filter.id)}
-              className={`px-3.5 py-1 rounded-full text-[11.5px] font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`px-3.5 py-1 rounded-full text-[11.5px] font-medium cursor-pointer whitespace-nowrap shrink-0 transition-colors ${
                 isActive ? 'btn-harmony-active' : 'btn-harmony-secondary'
               }`}
             >

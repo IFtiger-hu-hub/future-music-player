@@ -230,6 +230,34 @@ describe('Future Music Player Multi-Source Store & Huawei Sync Engine', () => {
     expect(created).toBeDefined();
     expect(created?.trackIds).toEqual(['trk_wanfeng', 'trk_fushishan']);
   });
+
+  it('resets currentTimeMs to 0 when switching tracks (playTrack, nextTrack, prevTrack)', () => {
+    const store = usePlayerStore.getState();
+    // Simulate playing current track for 55 seconds
+    store.setCurrentTimeMs(55000);
+    expect(usePlayerStore.getState().currentTimeMs).toBe(55000);
+
+    // Switch to another track
+    const track2 = INITIAL_TRACKS[1];
+    store.playTrack(track2);
+    expect(usePlayerStore.getState().currentTrack.id).toBe(track2.id);
+    expect(usePlayerStore.getState().currentTimeMs).toBe(0);
+
+    // Play again for 30 seconds
+    usePlayerStore.getState().setCurrentTimeMs(30000);
+    expect(usePlayerStore.getState().currentTimeMs).toBe(30000);
+
+    // Switch to next track
+    usePlayerStore.getState().nextTrack();
+    expect(usePlayerStore.getState().currentTimeMs).toBe(0);
+
+    // Switch back to track 1 (which was previously played)
+    const track1 = INITIAL_TRACKS[0];
+    usePlayerStore.getState().playTrack(track1);
+    expect(usePlayerStore.getState().currentTrack.id).toBe(track1.id);
+    // Must restart from 0s, not from 55000ms
+    expect(usePlayerStore.getState().currentTimeMs).toBe(0);
+  });
 });
 
 
