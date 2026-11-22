@@ -4,6 +4,10 @@
 
 ![Future Music 鸿蒙 PC 版主界面](./docs/screenshots/harmony-home.png)
 
+![播放详情 · 黑胶唱片](./docs/screenshots/playback-vinyl.png)
+
+播放详情从底部迷你唱盘进入，可切到「黑胶唱片」。上图是内置演示曲「晚风心里吹」（阿梨粤）的真实界面，唱盘封面、唱臂和当前逐字句都来自这份演示数据，不是已登录账号的云端曲库。
+
 ---
 
 ## 核心特性

@@ -20,6 +20,12 @@ import {
   LayoutGrid,
 } from 'lucide-react';
 import { usePlayerStore } from '../store/usePlayerStore';
+import {
+  glowCss,
+  pickAccent,
+  shadeBackdropPixel,
+  type Rgb,
+} from './backdropShade';
 import { CanonicalTrack, SourceId, LyricLine } from '../types/music';
 import {
   buildLyricRenderSegments,
@@ -165,39 +171,23 @@ function bakeCoverFromImage(
     );
     const baseData = bctx.getImageData(0, 0, w, h);
     const bd = baseData.data;
-
-    let maxSat = -1;
-    let bestR = 220;
-    let bestG = 80;
-    let bestB = 100;
+    const samples: Rgb[] = [];
+    for (let i = 0; i < bd.length; i += 16) {
+      samples.push({ r: bd[i], g: bd[i + 1], b: bd[i + 2] });
+    }
+    const accent = pickAccent(samples);
 
     for (let i = 0; i < bd.length; i += 4) {
-      const r = bd[i];
-      const g = bd[i + 1];
-      const b = bd[i + 2];
-      const luma = 0.299 * r + 0.587 * g + 0.114 * b;
-      const sat = Math.max(r, g, b) - Math.min(r, g, b);
-      if (sat > maxSat && luma > 40 && luma < 220) {
-        maxSat = sat;
-        bestR = r;
-        bestG = g;
-        bestB = b;
-      }
-      bd[i] = Math.max(0, Math.min(255, (luma + (r - luma) * 1.65) * 0.74));
-      bd[i + 1] = Math.max(
-        0,
-        Math.min(255, (luma + (g - luma) * 1.65) * 0.74)
-      );
-      bd[i + 2] = Math.max(
-        0,
-        Math.min(255, (luma + (b - luma) * 1.65) * 0.74)
-      );
+      const shaded = shadeBackdropPixel(bd[i], bd[i + 1], bd[i + 2], accent);
+      bd[i] = shaded.r;
+      bd[i + 1] = shaded.g;
+      bd[i + 2] = shaded.b;
     }
     gaussianBlurImageData(bd, w, h, 9);
     bctx.putImageData(baseData, 0, 0);
 
     const baseUrl = baseCanvas.toDataURL('image/jpeg', 0.85);
-    const glowColor = `rgba(${bestR}, ${bestG}, ${bestB}, 0.28)`;
+    const glowColor = glowCss(accent);
     const entry = { baseUrl, glowColor };
     prebakedCache.set(coverUrl, entry);
     return entry;
@@ -1019,7 +1009,7 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
         }
         @keyframes bgCrossfadeIn {
           0%   { opacity: 0; transform: scale(1.12); }
-          100% { opacity: 0.92; transform: scale(1.06); }
+          100% { opacity: 1; transform: scale(1.06); }
         }
         @keyframes vinylSlideOutLeft {
           0%   { transform: translate3d(0, 0, 0) scale(1); opacity: 1; }
@@ -1058,7 +1048,7 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
             src={prevBaseUrl}
             alt=""
             aria-hidden="true"
-            className="absolute inset-0 w-full h-full object-cover scale-106 opacity-92"
+            className="absolute inset-0 w-full h-full object-cover scale-106"
           />
         )}
 
@@ -1081,7 +1071,7 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
         <div
           style={{
             willChange: 'transform',
-            background: `radial-gradient(circle, ${glowColor} 0%, rgba(255,255,255,0.06) 38%, transparent 70%)`,
+            background: `radial-gradient(circle, ${glowColor} 0%, transparent 68%)`,
             animation: 'subtleGlowDrift 22s ease-in-out infinite',
             animationPlayState: isPlaying ? 'running' : 'paused',
             transition: 'background 700ms ease',
@@ -1094,7 +1084,7 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
           className="absolute inset-0"
           style={{
             background:
-              'radial-gradient(circle at 46% 48%, rgba(10, 10, 14, 0.08) 0%, rgba(10, 10, 14, 0.38) 100%)',
+              'radial-gradient(circle at 46% 48%, rgba(10, 10, 14, 0.04) 0%, rgba(10, 10, 14, 0.22) 100%)',
           }}
         />
       </div>
