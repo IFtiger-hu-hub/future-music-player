@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Play, Heart } from 'lucide-react';
+import { Play, Heart, ListPlus } from 'lucide-react';
 import { CanonicalTrack, SourceId } from '../types/music';
 import { usePlayerStore } from '../store/usePlayerStore';
 
@@ -41,6 +41,7 @@ export const TrackTable: React.FC<TrackTableProps> = ({ tracks }) => {
   const playTrack = usePlayerStore((s) => s.playTrack);
   const togglePlay = usePlayerStore((s) => s.togglePlay);
   const toggleFavorite = usePlayerStore((s) => s.toggleFavorite);
+  const playNextInQueue = usePlayerStore((s) => s.playNextInQueue);
 
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -231,15 +232,25 @@ export const TrackTable: React.FC<TrackTableProps> = ({ tracks }) => {
                 })}
               </div>
 
-              {/* Favorite Heart + Tabular Duration */}
-              <div className="flex items-center justify-end gap-2.5 pr-1">
+              {/* Favorite Heart + Play Next + Tabular Duration */}
+              <div className="flex items-center justify-end gap-1.5 sm:gap-2 pr-1">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    playNextInQueue(track);
+                  }}
+                  title="设为下一首播放"
+                  className="w-7 h-7 rounded-full flex items-center justify-center dock-btn-icon opacity-0 group-hover:opacity-100 transition-all cursor-pointer text-white/60 hover:text-white"
+                >
+                  <ListPlus className="w-3.5 h-3.5" />
+                </button>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     toggleFavorite(track.id);
                   }}
                   title={track.isFavorite ? '取消喜欢' : '添加到我喜欢'}
-                  className={`w-7.5 h-7.5 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                  className={`w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer ${
                     track.isFavorite
                       ? 'dock-btn-icon dock-btn-icon-favorited opacity-100'
                       : 'dock-btn-icon opacity-0 group-hover:opacity-100'

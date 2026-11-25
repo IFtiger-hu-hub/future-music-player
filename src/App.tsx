@@ -5,8 +5,10 @@ import { usePlayerStore } from './store/usePlayerStore';
 import { musicGateway } from './services/musicGateway';
 import { TopSourceBar } from './components/TopSourceBar';
 import { FloatingPlayerBar } from './components/FloatingPlayerBar';
+import { PlayQueueDrawer } from './components/PlayQueueDrawer';
 import { AmbientLyricStage } from './components/AmbientLyricStage';
 import { DesktopLyricOverlay } from './components/DesktopLyricOverlay';
+import { setupMediaSessionActionHandlers } from './services/audioEngine';
 import {
   HuaweiAuthModal,
   NeteaseConnectModal,
@@ -74,6 +76,25 @@ export function App() {
       unlisteners.forEach((fn) => fn());
     };
   }, [prevTrack, nextTrack, setDesktopLyricOpen]);
+
+  // Hook global Media Session action handlers (Hardware keys, MPRIS, notification center)
+  useEffect(() => {
+    setupMediaSessionActionHandlers({
+      onPlay: () => {
+        if (!usePlayerStore.getState().isPlaying) {
+          usePlayerStore.getState().togglePlay();
+        }
+      },
+      onPause: () => {
+        if (usePlayerStore.getState().isPlaying) {
+          usePlayerStore.getState().togglePlay();
+        }
+      },
+      onPrev: () => usePlayerStore.getState().prevTrack(),
+      onNext: () => usePlayerStore.getState().nextTrack(),
+      onSeekTo: (sec) => usePlayerStore.getState().seekToMs(Math.floor(sec * 1000)),
+    });
+  }, []);
 
   // Initialize HarmonyOS Pure Light theme on first desktop launch to match design blueprint
   useEffect(() => {
@@ -205,6 +226,7 @@ export function App() {
 
       {/* Sheets & Modals */}
       <div className="theme-main-area">
+        <PlayQueueDrawer />
         <HuaweiAuthModal />
         <NeteaseConnectModal />
         <WebdavConnectModal />

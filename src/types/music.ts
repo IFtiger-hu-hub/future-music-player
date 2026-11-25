@@ -4,6 +4,8 @@ export { THEME_PALETTES, getThemePalette };
 
 export type SourceId = 'huawei' | 'netease' | 'local' | 'webdav';
 
+export type PlayMode = 'sequential' | 'repeat_one' | 'shuffle';
+
 export type NavSection =
   | 'favorites'
   | 'local_playlists'

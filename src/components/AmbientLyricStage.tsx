@@ -9,6 +9,7 @@ import {
   Sliders,
   Heart,
   Repeat,
+  Repeat1,
   Shuffle,
   Volume2,
   Disc3,
@@ -798,6 +799,14 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
   const toggleFavorite = usePlayerStore((s) => s.toggleFavorite);
   const setStageOpen = usePlayerStore((s) => s.setStageOpen);
   const setActiveNav = usePlayerStore((s) => s.setActiveNav);
+  const playMode = usePlayerStore((s) => s.playMode);
+  const cyclePlayMode = usePlayerStore((s) => s.cyclePlayMode);
+  const isPlayQueueOpen = usePlayerStore((s) => s.isPlayQueueOpen);
+  const setPlayQueueOpen = usePlayerStore((s) => s.setPlayQueueOpen);
+  const playQueue = usePlayerStore((s) => s.playQueue);
+
+  const [showTranslation, setShowTranslation] = useState(true);
+  const [showRomanization, setShowRomanization] = useState(true);
 
   // CRITICAL PERFORMANCE INVARIANT:
   // Subscribe ONLY to `activeLineIndex` (which changes once every ~4 seconds),
@@ -828,7 +837,6 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
   const idleTimerRef = useRef<number | null>(null);
 
   const [vinylPlatterStyle, setVinylPlatterStyle] = useState(true);
-  const [playMode, setPlayMode] = useState<'sequence' | 'shuffle' | 'repeat'>('sequence');
 
   const { prevBaseUrl, activeBaseUrl, glowColor, transitionKey } =
     useCrossfadingCoverBackdrop(currentTrack.coverUrl);
@@ -980,12 +988,6 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
     '#18181B',
     '#09090B',
   ];
-
-  const cyclePlayMode = useCallback(() => {
-    setPlayMode((m) =>
-      m === 'sequence' ? 'shuffle' : m === 'shuffle' ? 'repeat' : 'sequence'
-    );
-  }, []);
 
   const handleVolumePct = useCallback(
     (pct: number) => setVolume(Math.round(pct)),
@@ -1181,6 +1183,49 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
             </button>
           </div>
 
+          {/* Translation & Romanization switches */}
+          <div className="hidden sm:flex items-center bg-black/25 border border-white/[0.1] p-0.5 rounded-full">
+            <button
+              onClick={() => setShowTranslation((v) => !v)}
+              title={showTranslation ? '隐藏歌词中文翻译' : '显示歌词中文翻译'}
+              className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors cursor-pointer ${
+                showTranslation
+                  ? 'bg-white/20 !text-white'
+                  : '!text-white/45 hover:!text-white/80'
+              }`}
+            >
+              译
+            </button>
+            <button
+              onClick={() => setShowRomanization((v) => !v)}
+              title={showRomanization ? '隐藏罗马音/拼音' : '显示罗马音/拼音'}
+              className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors cursor-pointer ${
+                showRomanization
+                  ? 'bg-white/20 !text-white'
+                  : '!text-white/45 hover:!text-white/80'
+              }`}
+            >
+              音
+            </button>
+          </div>
+
+          <button
+            onClick={() => setPlayQueueOpen(!isPlayQueueOpen)}
+            className={`h-8 px-3 rounded-full border text-[11.5px] font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
+              isPlayQueueOpen
+                ? 'bg-white/25 border-white/30 !text-white font-semibold'
+                : 'bg-black/25 border-white/[0.1] !text-white/75 hover:!text-white'
+            }`}
+            title="查看当前播放队列"
+          >
+            <span>队列</span>
+            {playQueue.length > 0 && (
+              <span className="w-4 h-4 rounded-full bg-[#FA2D48] text-[9.5px] font-bold !text-white flex items-center justify-center">
+                {playQueue.length}
+              </span>
+            )}
+          </button>
+
           <button
             onClick={() => setDesktopLyricOpen(!isDesktopLyricOpen)}
             className={`h-8 px-3 rounded-full border text-[11.5px] font-medium transition-colors cursor-pointer ${
@@ -1310,6 +1355,8 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
                 >
                   {playMode === 'shuffle' ? (
                     <Shuffle className="w-4 h-4" />
+                  ) : playMode === 'repeat_one' ? (
+                    <Repeat1 className="w-4 h-4 text-[#FA2D48]" />
                   ) : (
                     <Repeat className="w-4 h-4" />
                   )}
@@ -1409,7 +1456,7 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
                   }}
                   className="group cursor-pointer max-w-3xl transition-[transform,opacity] duration-300 ease-out hover:!opacity-95 py-2 px-5 rounded-2xl hover:bg-white/[0.04]"
                 >
-                  {line.romanization && (
+                  {line.romanization && showRomanization && (
                     <div
                       className={`text-[13.5px] sm:text-[15px] font-medium mb-1 tracking-wide ${
                         isActiveLine ? '!text-white/80' : '!text-white/45'
@@ -1429,13 +1476,20 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
                     <LyricLineText line={line} isActiveLine={isActiveLine} />
                   </div>
 
-                  {line.translation && (
+                  {line.translation && showTranslation && (
                     <div
                       className={`text-[14.5px] sm:text-[17px] mt-1.5 font-normal ${
                         isActiveLine ? '!text-white/75' : '!text-white/45'
                       }`}
                     >
                       {line.translation}
+                    </div>
+                  )}
+
+                  {!isActiveLine && (
+                    <div className="opacity-0 group-hover:opacity-100 flex items-center justify-center gap-1.5 mt-1 text-[11px] font-mono-tabular text-white/75 transition-opacity">
+                      <Play className="w-2.5 h-2.5 fill-current" />
+                      <span>{formatDuration(Math.floor(line.timeMs / 1000))}</span>
                     </div>
                   )}
                 </div>
@@ -1496,6 +1550,25 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
               </div>
 
               <div className="hidden sm:flex items-center justify-end gap-3 w-52">
+                <button
+                  onClick={cyclePlayMode}
+                  title={
+                    playMode === 'sequential'
+                      ? '列表循环'
+                      : playMode === 'repeat_one'
+                      ? '单曲循环'
+                      : '随机播放'
+                  }
+                  className="w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center !text-white/65 hover:!text-white transition-colors cursor-pointer shrink-0"
+                >
+                  {playMode === 'shuffle' ? (
+                    <Shuffle className="w-4 h-4" />
+                  ) : playMode === 'repeat_one' ? (
+                    <Repeat1 className="w-4 h-4 text-[#FA2D48]" />
+                  ) : (
+                    <Repeat className="w-4 h-4" />
+                  )}
+                </button>
                 <button
                   onClick={() => toggleFavorite(currentTrack.id)}
                   className="w-8 h-8 rounded-full hover:bg-white/10 flex items-center justify-center cursor-pointer shrink-0"
@@ -1591,16 +1664,18 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
                 <button
                   onClick={cyclePlayMode}
                   title={
-                    playMode === 'sequence'
+                    playMode === 'sequential'
                       ? '列表循环'
-                      : playMode === 'shuffle'
-                      ? '随机播放'
-                      : '单曲循环'
+                      : playMode === 'repeat_one'
+                      ? '单曲循环'
+                      : '随机播放'
                   }
                   className="w-9 h-9 rounded-full hover:bg-white/10 flex items-center justify-center !text-white/65 hover:!text-white transition-colors cursor-pointer"
                 >
                   {playMode === 'shuffle' ? (
                     <Shuffle className="w-4 h-4" />
+                  ) : playMode === 'repeat_one' ? (
+                    <Repeat1 className="w-4 h-4 text-[#FA2D48]" />
                   ) : (
                     <Repeat className="w-4 h-4" />
                   )}
@@ -1696,7 +1771,7 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
                   className="group cursor-pointer transition-[transform,opacity] duration-300 ease-out hover:!opacity-95 py-2 px-3.5 -mx-3.5 rounded-2xl hover:bg-white/[0.04] flex items-center justify-between gap-4"
                 >
                   <div className="min-w-0 flex-1">
-                    {line.romanization && (
+                    {line.romanization && showRomanization && (
                       <div
                         className={`text-[13px] font-medium mb-1 tracking-wide transition-colors ${
                           isActiveLine ? '!text-white/80' : '!text-white/45'
@@ -1716,7 +1791,7 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
                       <LyricLineText line={line} isActiveLine={isActiveLine} />
                     </div>
 
-                    {line.translation && (
+                    {line.translation && showTranslation && (
                       <div
                         className={`text-[14px] xl:text-[16px] mt-1 font-normal transition-colors ${
                           isActiveLine ? '!text-white/75' : '!text-white/45'
@@ -1727,8 +1802,9 @@ const ActiveStageBody: React.FC<{ isStageOpen: boolean }> = ({ isStageOpen }) =>
                     )}
                   </div>
 
-                  <span className="opacity-0 group-hover:opacity-100 text-[11px] font-mono-tabular px-2.5 py-0.5 rounded-full bg-white/15 !text-white/90 shrink-0 transition-opacity">
-                    {formatDuration(Math.floor(line.timeMs / 1000))}
+                  <span className="opacity-0 group-hover:opacity-100 text-[11px] font-mono-tabular px-2.5 py-0.5 rounded-full bg-white/15 !text-white/90 shrink-0 transition-opacity flex items-center gap-1">
+                    <Play className="w-2.5 h-2.5 fill-current" />
+                    <span>{formatDuration(Math.floor(line.timeMs / 1000))}</span>
                   </span>
                 </div>
               );

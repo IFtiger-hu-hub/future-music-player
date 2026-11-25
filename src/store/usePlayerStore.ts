@@ -6,6 +6,7 @@ import {
   MusicSourceMeta,
   NavSection,
   PlaylistItem,
+  PlayMode,
   SourceId,
   ThemeId,
 } from '../types/music';
@@ -35,6 +36,7 @@ const UI_PREFS_STORAGE_KEY = 'future_music_ui_prefs_v1';
 
 interface PersistedUiPrefs {
   volume?: number;
+  playMode?: PlayMode;
   eqPreset?: 'harman' | 'flat' | 'vocal' | 'bass';
   eqBands?: EqualizerBand[];
   lyricOffsetMs?: number;
@@ -133,6 +135,7 @@ export interface PlayerState {
   // Overlays & Modals
   isStageOpen: boolean;
   isCommandPaletteOpen: boolean;
+  isPlayQueueOpen: boolean;
   isHuaweiAuthModalOpen: boolean;
   isNeteaseModalOpen: boolean;
   isWebdavModalOpen: boolean;
@@ -141,6 +144,7 @@ export interface PlayerState {
   isSyncingNetease: boolean;
   isSyncingWebdav: boolean;
   isResolvingAudio: boolean;
+  isBuffering: boolean;
   isLoadingPlaylistDetail: boolean;
 
   // Appearance, Desktop Lyric, 10-Band EQ & Merge Audit
@@ -173,6 +177,8 @@ export interface PlayerState {
   lyricOffsetMs: number;
   rememberPlaybackProgress: boolean;
   lastSwitchDirection: 'next' | 'prev';
+  playMode: PlayMode;
+  playQueue: CanonicalTrack[];
 
   // Toasts
   toasts: ToastMessage[];
@@ -238,6 +244,15 @@ export interface PlayerState {
   switchPlaybackSource: (source: SourceId) => void;
   toggleFavorite: (trackId: string) => void;
   adjustLyricOffset: (deltaMs: number) => void;
+  setPlayMode: (mode: PlayMode) => void;
+  cyclePlayMode: () => void;
+  setPlayQueueOpen: (open: boolean) => void;
+  addToQueue: (track: CanonicalTrack) => void;
+  playNextInQueue: (track: CanonicalTrack) => void;
+  removeFromQueue: (trackId: string) => void;
+  clearQueue: () => void;
+  reorderQueue: (fromIndex: number, toIndex: number) => void;
+  setIsBuffering: (buffering: boolean) => void;
 
   // Huawei Account & Multi-source Sync Actions
   hydrateLibraryFromSqlite: () => Promise<void>;
@@ -261,6 +276,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   isStageOpen: false,
   isCommandPaletteOpen: false,
+  isPlayQueueOpen: false,
   isHuaweiAuthModalOpen: false,
   isNeteaseModalOpen: false,
   isWebdavModalOpen: false,
@@ -269,6 +285,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   isSyncingNetease: false,
   isSyncingWebdav: false,
   isResolvingAudio: false,
+  isBuffering: false,
   isLoadingPlaylistDetail: false,
 
   themeId: initialAppearance.themeId,
@@ -309,6 +326,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   lyricOffsetMs: initialUiPrefs.lyricOffsetMs ?? 0,
   rememberPlaybackProgress: initialRememberPlayback,
   lastSwitchDirection: 'next',
+  playMode: initialUiPrefs.playMode ?? 'sequential',
+  playQueue: [],
 
   toasts: [],
 
@@ -921,22 +940,122 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
 
   nextTrack: () => {
-    const { tracks, currentTrack } = get();
+    const { tracks, currentTrack, playMode, playQueue } = get();
+    // 1. If playQueue has custom queued songs, play and consume the first one
+    if (playQueue.length > 0) {
+      set({ lastSwitchDirection: 'next' });
+      const nextFromQueue = playQueue[0];
+      set({ playQueue: playQueue.slice(1) });
+      get().playTrack(nextFromQueue);
+      return;
+    }
+
     if (tracks.length === 0) return;
     set({ lastSwitchDirection: 'next' });
+
+    if (playMode === 'shuffle' && tracks.length > 1) {
+      let randIdx = Math.floor(Math.random() * (tracks.length - 1));
+      const currIdx = tracks.findIndex((t) => t.id === currentTrack.id);
+      if (randIdx >= currIdx && currIdx !== -1) {
+        randIdx += 1;
+      }
+      get().playTrack(tracks[randIdx % tracks.length]);
+      return;
+    }
+
     const idx = tracks.findIndex((t) => t.id === currentTrack.id);
     const next = tracks[(idx + 1) % tracks.length];
     get().playTrack(next);
   },
 
   prevTrack: () => {
-    const { tracks, currentTrack } = get();
+    const { tracks, currentTrack, playMode } = get();
     if (tracks.length === 0) return;
     set({ lastSwitchDirection: 'prev' });
+
+    if (playMode === 'shuffle' && tracks.length > 1) {
+      let randIdx = Math.floor(Math.random() * (tracks.length - 1));
+      const currIdx = tracks.findIndex((t) => t.id === currentTrack.id);
+      if (randIdx >= currIdx && currIdx !== -1) {
+        randIdx += 1;
+      }
+      get().playTrack(tracks[randIdx % tracks.length]);
+      return;
+    }
+
     const idx = tracks.findIndex((t) => t.id === currentTrack.id);
     const prev = tracks[(idx - 1 + tracks.length) % tracks.length];
     get().playTrack(prev);
   },
+
+  setPlayMode: (mode) => {
+    savePersistedUiPrefs({ playMode: mode });
+    set({ playMode: mode });
+  },
+
+  cyclePlayMode: () => {
+    const modes: PlayMode[] = ['sequential', 'repeat_one', 'shuffle'];
+    const curr = get().playMode;
+    const nextMode = modes[(modes.indexOf(curr) + 1) % modes.length];
+    get().setPlayMode(nextMode);
+    const labels: Record<PlayMode, string> = {
+      sequential: '列表循环',
+      repeat_one: '单曲循环',
+      shuffle: '随机播放',
+    };
+    get().pushToast(`切换播放模式：${labels[nextMode]}`, undefined, 'default');
+  },
+
+  setPlayQueueOpen: (open) => set({ isPlayQueueOpen: open }),
+
+  addToQueue: (track) => {
+    set((state) => {
+      const exists = state.playQueue.some((t) => t.id === track.id);
+      if (exists) {
+        return state;
+      }
+      return { playQueue: [...state.playQueue, track] };
+    });
+    get().pushToast('已添加到播放队列', `《${track.title}》将在稍后播放`, 'success');
+  },
+
+  playNextInQueue: (track) => {
+    set((state) => {
+      const filtered = state.playQueue.filter((t) => t.id !== track.id);
+      return { playQueue: [track, ...filtered] };
+    });
+    get().pushToast('已设为下一首播放', `《${track.title}》`, 'success');
+  },
+
+  removeFromQueue: (trackId) => {
+    set((state) => ({
+      playQueue: state.playQueue.filter((t) => t.id !== trackId),
+    }));
+  },
+
+  clearQueue: () => {
+    set({ playQueue: [] });
+    get().pushToast('播放队列已清空', undefined, 'default');
+  },
+
+  reorderQueue: (fromIndex, toIndex) => {
+    set((state) => {
+      const q = [...state.playQueue];
+      if (
+        fromIndex < 0 ||
+        fromIndex >= q.length ||
+        toIndex < 0 ||
+        toIndex >= q.length
+      ) {
+        return state;
+      }
+      const [item] = q.splice(fromIndex, 1);
+      q.splice(toIndex, 0, item);
+      return { playQueue: q };
+    });
+  },
+
+  setIsBuffering: (buffering) => set({ isBuffering: buffering }),
 
   setCurrentTimeMs: (ms) => {
     const clamped = Math.max(0, ms);

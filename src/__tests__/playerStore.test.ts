@@ -258,6 +258,35 @@ describe('Future Music Player Multi-Source Store & Huawei Sync Engine', () => {
     // Must restart from 0s, not from 55000ms
     expect(usePlayerStore.getState().currentTimeMs).toBe(0);
   });
+
+  it('cycles play modes and executes shuffle and playQueue consumption', () => {
+    const store = usePlayerStore.getState();
+    expect(store.playMode).toBe('sequential');
+
+    // Cycle modes
+    store.cyclePlayMode();
+    expect(usePlayerStore.getState().playMode).toBe('repeat_one');
+    store.cyclePlayMode();
+    expect(usePlayerStore.getState().playMode).toBe('shuffle');
+    store.cyclePlayMode();
+    expect(usePlayerStore.getState().playMode).toBe('sequential');
+
+    // Test PlayQueue priority
+    const queueTrack = INITIAL_TRACKS[3]; // trk_yeqv
+    store.playNextInQueue(queueTrack);
+    expect(usePlayerStore.getState().playQueue[0].id).toBe(queueTrack.id);
+
+    // Calling nextTrack should consume from queue first
+    usePlayerStore.getState().nextTrack();
+    expect(usePlayerStore.getState().currentTrack.id).toBe(queueTrack.id);
+    expect(usePlayerStore.getState().playQueue.length).toBe(0);
+
+    // Test buffering indicator
+    store.setIsBuffering(true);
+    expect(usePlayerStore.getState().isBuffering).toBe(true);
+    store.setIsBuffering(false);
+    expect(usePlayerStore.getState().isBuffering).toBe(false);
+  });
 });
 
 

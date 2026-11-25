@@ -1,7 +1,7 @@
 {
   "name": "future-music-player",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Multi-source desktop music player with first-class Huawei Music asset sync, NetEase, QQ Music, Local & Cloud sources",
   "type": "module",
   "scripts": {

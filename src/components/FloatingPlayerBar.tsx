@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import {
   Play,
@@ -13,12 +13,17 @@ import {
   User,
   SlidersHorizontal,
   Lock,
+  Repeat,
+  Repeat1,
+  Shuffle,
+  ListMusic,
 } from 'lucide-react';
 import { usePlayerStore } from '../store/usePlayerStore';
 import { NavSection, SourceId } from '../types/music';
 import {
   ParametricEqualizerEngine,
   subscribeAudioSeek,
+  updateNativeMediaSession,
 } from '../services/audioEngine';
 import { toThumbnailCoverUrl } from './TrackTable';
 
@@ -69,8 +74,9 @@ const HARMONY_BOTTOM_TABS: Array<{
 
 const MiniCapsuleProgressLine: React.FC<{
   totalDurationMs: number;
+  bufferedPercent: number;
   seekToMs: (ms: number) => void;
-}> = ({ totalDurationMs, seekToMs }) => {
+}> = ({ totalDurationMs, bufferedPercent, seekToMs }) => {
   const currentTimeMs = usePlayerStore((s) => s.currentTimeMs);
   const progressPercent = Math.min(100, (currentTimeMs / totalDurationMs) * 100);
   return (
@@ -85,8 +91,14 @@ const MiniCapsuleProgressLine: React.FC<{
       }}
       className="absolute bottom-0 left-6 right-6 h-[2.5px] bg-white/[0.1] cursor-pointer"
     >
+      {/* Buffered Range Line */}
       <div
-        className="h-full rounded-full transition-all duration-75"
+        className="absolute top-0 bottom-0 left-0 bg-white/20 rounded-full transition-all duration-300"
+        style={{ width: `${Math.min(100, Math.max(0, bufferedPercent))}%` }}
+      />
+      {/* Current Progress Line */}
+      <div
+        className="relative h-full rounded-full transition-all duration-75 z-10"
         style={{
           width: `${progressPercent}%`,
           backgroundColor: 'var(--theme-accent)',
@@ -110,6 +122,13 @@ export const FloatingPlayerBar: React.FC = () => {
   const isDesktopLyricLocked = usePlayerStore((s) => s.isDesktopLyricLocked);
   const setDesktopLyricOpen = usePlayerStore((s) => s.setDesktopLyricOpen);
   const setDesktopLyricLocked = usePlayerStore((s) => s.setDesktopLyricLocked);
+  const playMode = usePlayerStore((s) => s.playMode);
+  const cyclePlayMode = usePlayerStore((s) => s.cyclePlayMode);
+  const playQueue = usePlayerStore((s) => s.playQueue);
+  const isPlayQueueOpen = usePlayerStore((s) => s.isPlayQueueOpen);
+  const setPlayQueueOpen = usePlayerStore((s) => s.setPlayQueueOpen);
+  const isBuffering = usePlayerStore((s) => s.isBuffering);
+  const setIsBuffering = usePlayerStore((s) => s.setIsBuffering);
   const togglePlay = usePlayerStore((s) => s.togglePlay);
   const nextTrack = usePlayerStore((s) => s.nextTrack);
   const setCurrentTimeMs = usePlayerStore((s) => s.setCurrentTimeMs);
@@ -119,8 +138,19 @@ export const FloatingPlayerBar: React.FC = () => {
   const switchPlaybackSource = usePlayerStore((s) => s.switchPlaybackSource);
   const toggleFavorite = usePlayerStore((s) => s.toggleFavorite);
 
+  const [bufferedPercent, setBufferedPercent] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const eqEngineRef = useRef<ParametricEqualizerEngine | null>(null);
+
+  // Sync to system Media Session (Windows SMTC, macOS Now Playing, Linux MPRIS)
+  useEffect(() => {
+    updateNativeMediaSession({
+      track: currentTrack,
+      isPlaying,
+      durationSec: currentTrack.durationSeconds,
+      currentTimeSec: usePlayerStore.getState().currentTimeMs / 1000,
+    });
+  }, [currentTrack, isPlaying]);
 
   // 冷启动单次断点续播：仅在应用启动首次挂载历史歌曲且开启记忆时消费一次，切歌或消费后永久失效
   const initialResumePendingRef = useRef<boolean>(
@@ -257,9 +287,29 @@ export const FloatingPlayerBar: React.FC = () => {
           if (isStageOpen || e.currentTarget.readyState < 1) return;
           setCurrentTimeMs(Math.floor(e.currentTarget.currentTime * 1000));
         }}
+        onWaiting={() => setIsBuffering(true)}
+        onPlaying={() => setIsBuffering(false)}
+        onCanPlay={() => setIsBuffering(false)}
+        onProgress={(e) => {
+          const el = e.currentTarget;
+          if (el.buffered.length > 0 && el.duration > 0) {
+            const end = el.buffered.end(el.buffered.length - 1);
+            setBufferedPercent(Math.min(100, (end / el.duration) * 100));
+          }
+        }}
         onEnded={() => {
           initialResumePendingRef.current = false;
-          nextTrack();
+          const { playMode } = usePlayerStore.getState();
+          if (playMode === 'repeat_one') {
+            const el = audioRef.current;
+            if (el) {
+              el.currentTime = 0;
+              el.play().catch(() => {});
+            }
+            setCurrentTimeMs(0);
+          } else {
+            nextTrack();
+          }
         }}
       />
 
@@ -308,6 +358,7 @@ export const FloatingPlayerBar: React.FC = () => {
         {/* Subtle Bottom Progress Line Inside Capsule */}
         <MiniCapsuleProgressLine
           totalDurationMs={totalDurationMs}
+          bufferedPercent={bufferedPercent}
           seekToMs={seekToMs}
         />
 
@@ -414,6 +465,41 @@ export const FloatingPlayerBar: React.FC = () => {
             title="下一首"
           >
             <SkipForward className="w-3.5 h-3.5 fill-current" />
+          </button>
+
+          <button
+            onClick={cyclePlayMode}
+            className="w-8 h-8 rounded-full dock-btn-icon hidden sm:flex items-center justify-center shrink-0 cursor-pointer"
+            title={
+              playMode === 'sequential'
+                ? '列表循环'
+                : playMode === 'repeat_one'
+                ? '单曲循环'
+                : '随机播放'
+            }
+          >
+            {playMode === 'shuffle' ? (
+              <Shuffle className="w-3.5 h-3.5" />
+            ) : playMode === 'repeat_one' ? (
+              <Repeat1 className="w-3.5 h-3.5 text-[#FA2D48]" />
+            ) : (
+              <Repeat className="w-3.5 h-3.5" />
+            )}
+          </button>
+
+          <button
+            onClick={() => setPlayQueueOpen(!isPlayQueueOpen)}
+            className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 cursor-pointer relative ${
+              isPlayQueueOpen ? 'dock-btn-play' : 'dock-btn-icon'
+            }`}
+            title="播放队列"
+          >
+            <ListMusic className="w-3.5 h-3.5" />
+            {playQueue.length > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-[#FA2D48] text-[9px] font-bold !text-white flex items-center justify-center">
+                {playQueue.length}
+              </span>
+            )}
           </button>
 
           <button
